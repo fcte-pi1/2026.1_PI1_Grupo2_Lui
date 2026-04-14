@@ -1,0 +1,56 @@
+# Metadados do Site
+site_name: Projeto Integrador 1 - Grupo 2
+site_description: Documentação técnica do projeto MicroMouse (Lui) da UnB Gama.
+repo_url: https://github.com/fcte-pi1/2026.1_PI1_Grupo2_Lui
+repo_name: 2026.1_PI1_Grupo2_Lui
+copyright: "Copyright &copy; 2026 UnB Gama - Projeto Integrador 1"
+
+# Extensões Globais (CSS e JS)
+extra_css:
+  - css/custom-general.css
+  - css/maze-bg.css
+  - css/home-sections.css
+
+extra_javascript:
+  - js/maze-bg.js
+
+# Plugins Ativos
+plugins:
+  - search
+
+# Configuração de Tema (Material Design)
+theme:
+  name: material
+  language: pt-BR
+  
+  font:
+    text: Roboto Mono
+    code: Roboto Mono
+
+  # Esquema de cores: Terminal/Dark (Slate)
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: deep orange
+
+  # Recursos de Interface e Navegação
+  features:
+    - navigation.instant        # Carregamento via AJAX acelerado
+    - navigation.tracking       # Atualiza URL conforme scroll
+    - navigation.tabs           # Menu superior em abas
+    - navigation.tabs.sticky    # Abas fixas no topo
+    - navigation.sections       # Agrupamento lógico de seções
+    - navigation.footer         # Navegação no rodapé
+    - navigation.index          # Link direto para o diretório raiz
+    
+    - search.suggest            # Sugestão de pesquisa em tempo real
+    - search.highlight          # Destaque de termos buscados
+    - header.autohide           # Retração do header no scroll down
+    
+    - content.code.annotate     # Comentários interativos no código
+    - content.code.copy         # Botão de copiar snippet
+    - announce.dismiss          # Barra de anúncio dispensável
+
+# Estrutura de Navegação (Menu)
+nav:
+  - Home: index.md

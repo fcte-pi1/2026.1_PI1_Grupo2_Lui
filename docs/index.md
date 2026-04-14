@@ -65,7 +65,7 @@
   <a class="team-card" href="https://github.com/arthurrochamoreira">
     <div class="team-card__header">
       <span class="team-card__index">Membro #02</span>
-      <span class="team-card__manager">Gerente</span>
+      <span class="team-card__manager">Gerente de Software</span>
     </div>
     <div class="team-card__avatar-wrapper">
       <img src="https://github.com/arthurrochamoreira.png" alt="Arthur Moreira" />
@@ -230,7 +230,7 @@
   <a class="team-card" href="https://github.com/heyclarinham">
     <div class="team-card__header">
       <span class="team-card__index">Membro #13</span>
-      <span class="team-card__manager">Gerente</span>
+      <span class="team-card__manager">Gerente de Projeto</span>
     </div>
     <div class="team-card__avatar-wrapper">
       <img src="https://github.com/heyclarinham.png" alt="Maria Clara" />

@@ -1,0 +1,135 @@
+/* --- Seção de Apresentação (Hero) --- */
+.presentation {
+  text-align: center;
+  padding: 4rem 0 2rem;
+}
+
+.presentation-tag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.presentation-line {
+  display: block;
+  width: 40px;
+  height: 2px;
+  background: var(--purple-accent);
+}
+
+.presentation-label {
+  font-size: 0.65rem;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--purple-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.4em;
+}
+
+/* Título de grande impacto com efeito de fade gradiente */
+.presentation-title {
+  font-size: 6rem !important;
+  font-weight: 900 !important;
+  font-style: italic !important;
+  text-transform: uppercase !important;
+  line-height: 0.8 !important;
+  letter-spacing: -0.06em !important;
+  color: #ffffff !important;
+  margin: 0 !important;
+}
+
+.presentation-title-fade {
+  background: linear-gradient(to bottom, #ffffff, rgba(255, 255, 255, 0.1));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.presentation-content {
+  margin-top: 3rem;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Indicadores de Performance (Stats) */
+.presentation-stats {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.stat-card {
+  padding: 1rem 1.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 3px solid var(--purple-accent);
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-label {
+  font-size: 0.6rem;
+  font-family: monospace;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 1.3rem;
+  font-weight: 900;
+  font-style: italic;
+  color: #fff;
+  font-family: monospace;
+}
+
+/* --- Cabeçalhos de Seção Customizados --- */
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.section-title {
+  font-size: 2rem !important;
+  font-weight: 900 !important;
+  font-style: italic !important;
+  text-transform: uppercase !important;
+  letter-spacing: -0.04em !important;
+  color: #fff !important;
+  margin: 0 !important;
+}
+
+.section-subtitle {
+  font-size: 0.65rem;
+  font-family: monospace;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-top: 0.5rem !important;
+}
+
+/* Contador Geométrico */
+.section-counter {
+  text-align: right;
+}
+
+.counter-label {
+  display: block;
+  font-size: 0.6rem;
+  font-family: monospace;
+  color: #475569;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.counter-value {
+  font-size: 1.5rem;
+  font-weight: 900;
+  font-style: italic;
+  color: #fff;
+}

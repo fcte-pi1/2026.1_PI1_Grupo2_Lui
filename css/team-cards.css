@@ -1,0 +1,176 @@
+/* --- Grid de Equipe --- */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0;
+}
+
+/* --- Cartão de Membro (Fabricator Style) --- */
+.team-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 2rem 1.5rem 1.5rem;
+  background: var(--md-primary-fg-color--light);
+  border: 1px solid var(--border-subtle);
+  text-decoration: none;
+  color: inherit;
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--transition-speed) ease,
+              transform var(--transition-speed) var(--transition-bezier);
+  
+  /* Corte angular nas quinas para estética industrial/racing */
+  clip-path: polygon(0 0, 90% 0, 100% 10%, 100% 100%, 0 100%);
+  height: 100%;
+}
+
+/* Efeito Glow Angulado no Hover */
+.team-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(147, 51, 234, 0.15) 0%,
+    rgba(79, 70, 229, 0.1) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.team-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-4px);
+}
+
+.team-card:hover::before {
+  opacity: 1;
+}
+
+/* --- Slot 1: Cabeçalho do Cartão --- */
+.team-card__header {
+  height: 2.5rem;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.team-card__index {
+  font-size: 0.6rem;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--purple-accent);
+  letter-spacing: 0.2rem;
+  text-transform: uppercase;
+  display: block;
+}
+
+.team-card__manager {
+  font-size: 0.5rem;
+  font-family: var(--base-font);
+  color: var(--green-racing);
+  text-transform: uppercase;
+  display: block;
+  margin-top: -0.1rem;
+  opacity: 0.9;
+  letter-spacing: 0.05em;
+  min-height: 0.6rem;
+}
+
+.team-card__manager:empty::after {
+  content: "\00a0";
+}
+
+/* --- Slot 2: Avatar com Mira (Reticle) --- */
+.team-card__avatar-wrapper {
+  position: relative;
+  margin: 1rem 0;
+}
+
+/* Elementos decorativos de mira (Reticle UI) */
+.team-card__avatar-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border: 1px solid rgba(147, 51, 234, 0.2);
+  border-radius: 50%;
+}
+
+.team-card__avatar-wrapper::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px solid transparent;
+  border-top-color: var(--purple-accent);
+  border-radius: 50%;
+}
+
+.team-card img {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid var(--md-primary-fg-color);
+  display: block;
+  transition: transform 0.5s var(--transition-bezier);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.team-card:hover img {
+  transform: scale(1.1);
+}
+
+/* --- Slot 3: Informações de Texto --- */
+.team-card__body {
+  width: 100%;
+  text-align: center;
+  min-height: 3rem;
+}
+
+.team-card__name {
+  font-size: 1rem;
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  margin-top: 0.75rem;
+  transition: color var(--transition-speed) ease;
+}
+
+.team-card:hover .team-card__name {
+  color: var(--purple-light);
+}
+
+.team-card__handle {
+  font-size: 0.65rem;
+  color: var(--md-typeset-muted-color);
+  font-family: var(--base-font);
+  margin-top: 0.25rem;
+}
+
+/* --- Slot 4: Role Badge --- */
+.team-card__role {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  background: rgba(147, 51, 234, 0.1);
+  border: 1px solid rgba(147, 51, 234, 0.2);
+  margin-top: 0.75rem;
+  font-size: 0.55rem;
+  font-weight: 900;
+  color: var(--purple-glow);
+  text-transform: uppercase;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  min-height: 1.5rem;
+}

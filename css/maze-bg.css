@@ -1,0 +1,12 @@
+#bgCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    pointer-events: none;
+    display: block;
+    opacity: 0.15;
+    filter: blur(0.5px);
+}

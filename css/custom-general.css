@@ -1,0 +1,480 @@
+/* --- Estilos Globais e Reset --- */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--base-font) !important;
+}
+
+::selection {
+  background: rgba(147, 51, 234, 0.5);
+  color: #ffffff;
+}
+
+/* Container principal ajustado para layout ultra-wide */
+.md-main__inner {
+  min-width: 95vw;
+  position: relative;
+}
+
+/* --- Design System: Tokens de Cor e Tipografia (Tema Slate) --- */
+[data-md-color-scheme="slate"] {
+  /* Cores de Fundo e Texto Core */
+  --md-primary-fg-color:        #050508;
+  --md-primary-fg-color--light: #0a0a0f;
+  --md-primary-fg-color--dark:  #000000;
+  --md-default-bg-color:        #050508;
+  --md-code-bg-color:           #0a0a14;
+  --md-code-fg-color:           #d4d4e8;
+
+  --heading-color:              #ffffff;
+  --text-color:                 #cbd5e1;
+  --md-typeset-color:           #cbd5e1;
+  --md-typeset-muted-color:     #64748b;
+  
+  /* Sotaques e Identidade Visual (Racing/Techno) */
+  --purple-accent:              #9333ea;
+  --purple-light:               #a855f7;
+  --purple-glow:                #c084fc;
+  --green-racing:               #10b981;
+
+  /* Bordas e Overlays Glassmorphism */
+  --border-subtle:              rgba(255, 255, 255, 0.05);
+  --border-hover:               rgba(147, 51, 234, 0.5);
+  --bg-dark-glass:              rgba(0, 0, 0, 0.85);
+  --bg-dark-solid:              rgba(0, 0, 0, 0.98);
+
+  /* Variáveis de Animação e Layout */
+  --base-font:                  'Roboto Mono', monospace;
+  --transition-speed:           0.3s;
+  --transition-bezier:          cubic-bezier(0.22, 1, 0.36, 1);
+  --header-height:              56px;
+}
+
+/* --- Tipografia Técnica (Cabeçalhos) --- */
+[data-md-color-scheme="slate"] h1,
+[data-md-color-scheme="slate"] h2,
+[data-md-color-scheme="slate"] h3,
+[data-md-color-scheme="slate"] h4,
+[data-md-color-scheme="slate"] h5,
+[data-md-color-scheme="slate"] h6 {
+  color: var(--heading-color) !important;
+  font-weight: 900 !important;
+  font-style: italic !important;
+  text-transform: uppercase !important;
+  letter-spacing: -0.04em !important;
+}
+
+[data-md-color-scheme="slate"] h1 {
+  font-size: 3rem !important;
+  line-height: 0.85 !important;
+}
+
+[data-md-color-scheme="slate"] h2 {
+  font-size: 2rem !important;
+  letter-spacing: -0.03em !important;
+}
+
+[data-md-color-scheme="slate"] p {
+  color: var(--text-color);
+  line-height: 1.8;
+  font-size: 0.9rem;
+}
+
+[data-md-color-scheme="slate"] a {
+  color: var(--purple-light);
+  transition: color 0.2s ease;
+}
+
+[data-md-color-scheme="slate"] a:hover {
+  color: #c084fc;
+}
+
+/* --- Componente: Header (Navegação Superior) --- */
+.md-header {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  z-index: 100 !important;
+  transition: background var(--transition-speed) ease !important;
+}
+
+/* Estado de scroll (Header fixo com blur) */
+.md-header[data-md-state="shadow"] {
+  background: var(--bg-dark-solid) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.md-header__inner {
+  max-width: 95vw !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  height: var(--header-height) !important;
+  background: var(--bg-dark-glass) !important;
+}
+
+.md-header__title {
+  font-family: var(--base-font) !important;
+  font-weight: 900 !important;
+  font-style: italic !important;
+  text-transform: uppercase !important;
+  letter-spacing: -0.06em !important;
+  font-size: 0.95rem !important;
+  line-height: var(--header-height) !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  height: var(--header-height) !important;
+  margin: 0 !important;
+  padding: 0 0.5rem !important;
+}
+
+.md-header__title .md-header__topic {
+  display: flex !important;
+  align-items: center !important;
+  height: var(--header-height) !important;
+  line-height: var(--header-height) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: static !important;
+  transform: none !important;
+}
+
+.md-header__title .md-header__ellipsis {
+  display: flex !important;
+  align-items: center !important;
+  height: var(--header-height) !important;
+}
+
+.md-header__button {
+  transition: color 0.25s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.md-header__button.md-icon {
+  display: none !important;
+}
+
+.md-header__button:hover {
+  color: var(--purple-light) !important;
+}
+
+/* --- Identidade Visual do Repositório --- */
+.md-source__repository {
+  font-family: 'Roboto Mono', monospace !important;
+  font-size: 0.625rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important; 
+  font-style: normal !important;
+}
+
+/* --- Navegação Lateral (Sidebar) --- */
+.md-nav__item.md-nav__item--active {
+  display: none !important;
+}
+
+.md-nav__link,
+.md-nav__title {
+  font-family: 'Roboto Mono', monospace !important;
+  font-size: 0.625rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  font-style: normal !important;
+}
+
+/* --- Componente: Tabs (Abas de Navegação) --- */
+.md-tabs {
+  background: var(--bg-dark-glass) !important;
+  border-bottom: none !important;
+  border-left: 3px solid var(--purple-accent) !important;
+  z-index: 99 !important;
+}
+
+.md-tabs__list {
+  max-width: 95vw !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  align-items: stretch !important;
+}
+
+.md-tabs__item {
+  height: auto !important;
+}
+
+.md-tabs__link {
+  font-family: var(--base-font) !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 0.6rem 1.5rem !important;
+  font-size: 0.625rem !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+  font-style: normal !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  transition: all var(--transition-speed) ease !important;
+  opacity: 1 !important;
+  border-radius: 0 !important;
+}
+
+.md-tabs__link span {
+  font-style: normal !important;
+}
+
+.md-tabs__link:hover {
+  color: var(--heading-color) !important;
+  background: transparent !important;
+}
+
+.md-tabs__item--active .md-tabs__link {
+  color: #fff !important;
+  background: transparent !important;
+  border-bottom: 2px solid var(--purple-accent) !important;
+}
+
+/* --- Componente: Footer (Rodapé) --- */
+.md-footer {
+  background: #000 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.md-footer-meta {
+  background: transparent !important;
+}
+
+/* --- Custom Control: Seletor de Idioma --- */
+#lang-select {
+  font-family: var(--base-font);
+  background-color: rgba(10, 10, 20, 0.6);
+  color: var(--text-color);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: border-color var(--transition-speed) ease;
+}
+
+#lang-select:hover {
+  border-color: var(--purple-accent);
+}
+
+#lang-select:focus,
+#lang-select:active {
+  border-color: var(--purple-accent);
+  outline: none;
+  box-shadow: 0 0 12px rgba(147, 51, 234, 0.15);
+}
+
+/* --- Layout de Conteúdo (Typeset) --- */
+.md-content {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+
+.md-content h1:first-of-type {
+  font-size: 4.5rem !important;
+  line-height: 0.85 !important;
+  letter-spacing: -0.06em !important;
+  margin-bottom: 1rem !important;
+}
+
+.md-content h2 {
+  position: relative !important;
+  padding-left: 2rem !important;
+  margin-top: 4rem !important;
+}
+
+/* Marcador decorativo lateral para H2 */
+.md-content h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 3px;
+  background: var(--purple-accent);
+}
+
+/* --- Elementos de Tipografia e Blocos --- */
+.md-typeset hr {
+  border: none;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  margin: 3rem 0;
+  position: relative;
+}
+
+.md-typeset hr::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 60px;
+  background: var(--purple-accent);
+}
+
+.md-typeset blockquote {
+  border-left: 3px solid var(--purple-accent) !important;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 !important;
+  padding: 1.5rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Efeito de brilho em blocos de citação */
+.md-typeset blockquote::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 120px;
+  background: rgba(147, 51, 234, 0.05);
+  border-radius: 50%;
+  filter: blur(40px);
+}
+
+.md-typeset blockquote p {
+  font-family: var(--base-font) !important;
+  font-size: 0.82rem !important;
+  line-height: 1.8 !important;
+  color: var(--md-typeset-muted-color) !important;
+}
+
+/* --- Tabelas Técnicas --- */
+.md-typeset table:not([class]) {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0 !important;
+  overflow: hidden;
+  width: 100%;
+}
+
+.md-typeset table:not([class]) thead {
+  background: rgba(147, 51, 234, 0.08);
+}
+
+.md-typeset table:not([class]) th {
+  color: var(--heading-color);
+  font-weight: 900;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-style: italic;
+  border-bottom: 2px solid var(--purple-accent);
+  padding: 0.75rem 1rem;
+}
+
+.md-typeset table:not([class]) td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.65rem 1rem;
+  font-size: 0.82rem;
+  font-family: var(--base-font);
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background-color: rgba(147, 51, 234, 0.04);
+}
+
+.md-typeset table:not([class]) tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- Código e Blocos de Sintaxe --- */
+.md-typeset code {
+  border-radius: 2px;
+  padding: 0.15em 0.45em;
+  border: 1px solid var(--border-subtle);
+  background: var(--md-code-bg-color);
+  font-size: 0.82em;
+  font-weight: 700;
+}
+
+.md-typeset pre {
+  border-radius: 0 !important;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--purple-accent);
+  background: var(--md-code-bg-color);
+}
+
+/* --- Admonitions e Details --- */
+.md-typeset .admonition,
+.md-typeset details {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0 !important;
+  border-left: 3px solid var(--purple-accent);
+}
+
+/* --- Custom Scrollbar (Estilo Terminal) --- */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--purple-accent);
+  border-radius: 0;
+}
+
+/* --- Navegação entre Páginas --- */
+.md-nav__title {
+  display: none !important;
+}
+
+.md-nav__link {
+  font-family: var(--base-font) !important;
+  font-size: 0.725rem !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.02em !important;
+  color: var(--md-typeset-muted-color) !important;
+  padding: 0.4rem 0 !important;
+  transition: all var(--transition-speed) var(--transition-bezier) !important;
+  border-left: 2px solid transparent;
+}
+
+.md-nav__link:hover {
+  color: var(--purple-light) !important;
+  background-color: transparent !important;
+  padding-left: 1rem !important;
+  border-left: 2px solid var(--purple-accent);
+}
+
+.md-nav__item--active > .md-nav__link {
+  color: var(--purple-light) !important;
+  font-weight: 900 !important;
+  border-left: 2px solid var(--purple-accent);
+  padding-left: 1rem !important;
+  background: linear-gradient(to right, rgba(147, 51, 234, 0.05), transparent) !important;
+}
+
+.md-sidebar--secondary {
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 1rem;
+}
+
+.md-footer-meta__inner.md-grid {
+  display: none !important;
+}

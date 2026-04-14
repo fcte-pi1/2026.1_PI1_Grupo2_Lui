@@ -1,5 +1,6 @@
 name: deploy
 
+# Gatilhos de execução: push nas branches main ou master
 on:
   push:
     branches:
@@ -7,7 +8,7 @@ on:
       - main
 
 permissions:
-  contents: write  # Necessário para o GitHub Actions publicar na gh-pages
+  contents: write
 
 jobs:
   deploy:
@@ -19,8 +20,10 @@ jobs:
         with:
           python-version: 3.x
 
+      # Gerador de ID único para cache baseado na semana do ano para invalidar periodicamente
       - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
 
+      # Cache de dependências do MkDocs para acelerar builds subsequentes
       - uses: actions/cache@v3
         with:
           key: mkdocs-material-${{ env.cache_id }}
@@ -28,12 +31,15 @@ jobs:
           restore-keys: |
             mkdocs-material-
 
+      # Instalação das dependências principais e plugins
       - run: pip install mkdocs-material
       - run: pip install mkdocs-mermaid2-plugin
 
+      # Compilação do site (Markdown -> HTML)
       - name: Build site
         run: mkdocs build
 
+      # Publicação automática na branch gh-pages utilizando token temporário
       - name: Deploy with peaceiris/actions-gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:

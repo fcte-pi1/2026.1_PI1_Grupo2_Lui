@@ -1,0 +1,41 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: write  # Necessário para o GitHub Actions publicar na gh-pages
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+
+      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+
+      - run: pip install mkdocs-material
+      - run: pip install mkdocs-mermaid2-plugin
+
+      - name: Build site
+        run: mkdocs build
+
+      - name: Deploy with peaceiris/actions-gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site

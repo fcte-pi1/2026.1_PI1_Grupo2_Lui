@@ -1,4 +1,4 @@
-/* --- Seção de Apresentação (Hero) --- */
+/* Hero Section */
 .presentation {
   text-align: center;
   padding: 4rem 0 2rem;
@@ -28,7 +28,7 @@
   letter-spacing: 0.4em;
 }
 
-/* Título de grande impacto com efeito de fade gradiente */
+/* Header Impact & Fade */
 .presentation-title {
   font-size: 6rem !important;
   font-weight: 900 !important;
@@ -54,7 +54,7 @@
   margin-right: auto;
 }
 
-/* Indicadores de Performance (Stats) */
+/* Stats Indicators */
 .presentation-stats {
   display: flex;
   gap: 1rem;
@@ -84,7 +84,7 @@
   font-family: monospace;
 }
 
-/* --- Cabeçalhos de Seção Customizados --- */
+/* Custom Section Headers */
 .section-header {
   display: flex;
   align-items: flex-end;
@@ -113,7 +113,7 @@
   margin-top: 0.5rem !important;
 }
 
-/* Contador Geométrico */
+/* Grid Counter */
 .section-counter {
   text-align: right;
 }

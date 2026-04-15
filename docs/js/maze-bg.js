@@ -8,7 +8,7 @@ const MazeAnimation = (function() {
 
         const ctx = canvas.getContext('2d');
 
-        // Configurações de grade e dimensão das células baseadas no viewport
+        // Configuracao da grade
         let cellSize = 50; 
         let cols, rows;
         let offsetX, offsetY;
@@ -16,7 +16,7 @@ const MazeAnimation = (function() {
         let path = [];
         let state = 'INIT'; 
         
-        // Paleta de cores centralizada (Racing/Engineering theme)
+        // Cores
         const cores = {
             fundoRadial1: '#1b0b3b', 
             fundoRadial2: '#090214', 
@@ -30,7 +30,7 @@ const MazeAnimation = (function() {
             queijoSombra: '#d00000'
         };
 
-        // Estado interno do agente (MicroMouse)
+        // Estado do agente
         let ratinho = {
             x: 0, y: 0, px: 0, py: 0, angulo: 0,
             pathIndex: 0, progresso: 0, velocidade: 2.5, cicloAnima: 0
@@ -38,7 +38,7 @@ const MazeAnimation = (function() {
 
         let particulas = [];
 
-        // Redimensionamento dinâmico e recalculação da grade
+        // Resize
         function resize() {
             if (!document.getElementById('bgCanvas')) return;
             canvas.width = window.innerWidth;
@@ -57,10 +57,7 @@ const MazeAnimation = (function() {
         resizeHandler = resize;
         window.addEventListener('resize', resizeHandler);
 
-        /**
-         * Gera um labirinto aleatório usando algoritmo de Busca em Profundidade (DFS)
-         * com backtracking para garantir que todas as áreas sejam acessíveis.
-         */
+        /** Gera labirinto (DFS) */
         function criarLabirinto() {
             grid = [];
             for (let i = 0; i < cols; i++) {
@@ -95,10 +92,7 @@ const MazeAnimation = (function() {
             }
         }
 
-        /**
-         * Encontra o caminho mais curto entre dois pontos usando BFS (Busca em Largura).
-         * Retorna um array de coordenadas das células.
-         */
+        /** Caminho mais curto (BFS) */
         function encontrarCaminho(inicio, fim) {
             let fila = [{ celula: inicio, caminho: [inicio] }];
             let visitados = new Set();
@@ -122,7 +116,7 @@ const MazeAnimation = (function() {
             return [];
         }
 
-        // Reseta o estado para uma nova simulação
+        // Reset
         function iniciarNovaRodada() {
             criarLabirinto();
             let startY = Math.floor(Math.random() * rows);
@@ -141,7 +135,7 @@ const MazeAnimation = (function() {
             particulas = []; state = 'ANIMATING';
         }
 
-        // Converte coordenadas da grade (cols, rows) em coordenadas de pixel no canvas
+        // Grid para Pixels
         function obterPixels(cx, cy) {
             return { x: offsetX + cx * cellSize + cellSize / 2, y: offsetY + cy * cellSize + cellSize / 2 };
         }
@@ -150,7 +144,7 @@ const MazeAnimation = (function() {
             let p = obterPixels(cx, cy); ratinho.px = p.x; ratinho.py = p.y;
         }
 
-        // Utilitários de interpolação matemática
+        // Interpolacao
         function lerp(a, b, t) { return a + (b - a) * t; }
         function lerpAngulo(a, b, t) {
             let diff = b - a;
@@ -159,7 +153,7 @@ const MazeAnimation = (function() {
             return a + diff * t;
         }
 
-        // Renderização dos muros do labirinto
+        // Render muros
         function desenharLabirinto() {
             ctx.shadowColor = 'rgba(157, 78, 221, 0.4)';
             ctx.shadowBlur = 10;
@@ -180,7 +174,7 @@ const MazeAnimation = (function() {
             ctx.shadowColor = 'transparent';
         }
 
-        // Renderização do objetivo final da simulação
+        // Render objetivo
         function desenharQueijo(cx, cy, tempo) {
             let p = obterPixels(cx, cy); let tamanho = cellSize * 0.45;
             ctx.save();
@@ -200,7 +194,7 @@ const MazeAnimation = (function() {
             ctx.restore();
         }
 
-        // Renderização do agente móvel baseado em curvas de Bezier
+        // Render agente
         function desenharRatinho(tempo) {
             ctx.save(); ctx.translate(ratinho.px, ratinho.py);
             ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'; ctx.shadowBlur = 10; ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 5;
@@ -246,7 +240,7 @@ const MazeAnimation = (function() {
         let ultimoTempo = 0;
         let temporizadorWin = 0;
 
-        // Loop de animação principal (RequestAnimationFrame)
+        // Animation loop
         function loop(tempoAtual) {
             if (!document.getElementById('bgCanvas')) {
                 animationFrameId = null;
@@ -257,7 +251,7 @@ const MazeAnimation = (function() {
             if (deltaTime > 0.1) deltaTime = 0.1; // Cap para evitar saltos bruscos se a aba for pausada
             ultimoTempo = tempoAtual;
 
-            // Background dinâmico com gradiente radial
+            // Render background
             let gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height));
             gradient.addColorStop(0, cores.fundoRadial1);
             gradient.addColorStop(1, cores.fundoRadial2);
@@ -273,7 +267,7 @@ const MazeAnimation = (function() {
             }
             desenharParticulas();
 
-            // Lógica de movimentação em tempo real (Linear Interpolation)
+            // Movimentacao
             if (state === 'ANIMATING') {
                 ratinho.progresso += ratinho.velocidade * deltaTime;
                 ratinho.cicloAnima += ratinho.velocidade * deltaTime * 15;
@@ -298,11 +292,11 @@ const MazeAnimation = (function() {
                     let atual = path[ratinho.pathIndex]; let proximo = path[ratinho.pathIndex + 1];
                     let pAtual = obterPixels(atual.x, atual.y); let pProximo = obterPixels(proximo.x, proximo.y);
                     
-                    // Movimento suave entre as células
+                    // Interp. posicao
                     ratinho.px = lerp(pAtual.x, pProximo.x, ratinho.progresso); 
                     ratinho.py = lerp(pAtual.y, pProximo.y, ratinho.progresso);
                     
-                    // Rotação suave baseada no vetor de direção
+                    // Interp. angulo
                     let anguloAlvo = Math.atan2(pProximo.y - pAtual.y, pProximo.x - pAtual.x);
                     ratinho.angulo = lerpAngulo(ratinho.angulo, anguloAlvo, 0.15);
                 }
@@ -326,10 +320,7 @@ const MazeAnimation = (function() {
     return { init };
 })();
 
-/**
- * Ponto de entrada compatível com a navegação instantânea do MkDocs Material.
- * Garante que a animação reinicie sem duplicar instâncias.
- */
+/** Bootstrap */
 function bootstrapMazeAnimation() {
     const canvas = document.getElementById('bgCanvas');
     if (canvas && !canvas.dataset.mazeBgLoaded) {
@@ -341,6 +332,6 @@ function bootstrapMazeAnimation() {
 // Inicialização inicial
 window.addEventListener('DOMContentLoaded', bootstrapMazeAnimation);
 
-// Observador de mutação para triggers de navegação sem reload
+// Observer para MkDocs
 const mazeObserver = new MutationObserver(bootstrapMazeAnimation);
 mazeObserver.observe(document.body, { childList: true, subtree: true });

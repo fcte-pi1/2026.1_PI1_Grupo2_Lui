@@ -1,19 +1,19 @@
-/* --- Grid de Equipe --- */
+/* Equipe Grid */
 .team-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 0;
+  gap: 1.5rem;
 }
 
-/* --- Cartão de Membro (Fabricator Style) --- */
+/* Cartao Membro */
 .team-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0;
   padding: 2rem 1.5rem 1.5rem;
-  background: var(--md-primary-fg-color--light);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  border: 1px solid var(--ui-border-subtle);
   text-decoration: none;
   color: inherit;
   position: relative;
@@ -21,12 +21,12 @@
   transition: border-color var(--transition-speed) ease,
               transform var(--transition-speed) var(--transition-bezier);
   
-  /* Corte angular nas quinas para estética industrial/racing */
-  clip-path: polygon(0 0, 90% 0, 100% 10%, 100% 100%, 0 100%);
+  /* Layout Retangular */
+  border-radius: 8px;
   height: 100%;
 }
 
-/* Efeito Glow Angulado no Hover */
+/* Glow Hover */
 .team-card::before {
   content: "";
   position: absolute;
@@ -43,7 +43,7 @@
 }
 
 .team-card:hover {
-  border-color: var(--border-hover);
+  border-color: var(--ui-border-hover);
   transform: translateY(-4px);
 }
 
@@ -51,7 +51,7 @@
   opacity: 1;
 }
 
-/* --- Slot 1: Cabeçalho do Cartão --- */
+/* Header Membro */
 .team-card__header {
   height: 2.5rem;
   width: 100%;
@@ -88,13 +88,13 @@
   content: "\00a0";
 }
 
-/* --- Slot 2: Avatar com Mira (Reticle) --- */
+/* Avatar Wrapper */
 .team-card__avatar-wrapper {
   position: relative;
   margin: 1rem 0;
 }
 
-/* Elementos decorativos de mira (Reticle UI) */
+/* Mira Decorativa */
 .team-card__avatar-wrapper::before {
   content: "";
   position: absolute;
@@ -112,22 +112,30 @@
   border-radius: 50%;
 }
 
-.team-card img {
+.team-card__avatar-inner {
   width: 200px;
   height: 200px;
   border-radius: 50%;
+  overflow: hidden;
+  border: 4px solid var(--bg-page);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  position: relative;
+  z-index: 1;
+}
+
+.team-card img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border: 4px solid var(--md-primary-fg-color);
   display: block;
   transition: transform 0.5s var(--transition-bezier);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .team-card:hover img {
   transform: scale(1.1);
 }
 
-/* --- Slot 3: Informações de Texto --- */
+/* Info Membro */
 .team-card__body {
   width: 100%;
   text-align: center;
@@ -157,7 +165,7 @@
   margin-top: 0.25rem;
 }
 
-/* --- Slot 4: Role Badge --- */
+/* Role Badge */
 .team-card__role {
   display: inline-flex;
   align-items: center;

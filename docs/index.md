@@ -16,7 +16,7 @@
   <div class="presentation-content">
     <div class="presentation-text">
       <p style="font-size: 1.1rem; color: #94a3b8; font-style: italic; line-height: 1.8;">
-        Desenvolvimento de um micromouse: um robô autônomo inteligente capaz de explorar e resolver labirintos desconhecidos com alta eficiência. O projeto combina <strong style="color: #fff;">Hardware</strong>, <strong style="color: #fff;">Software</strong> e <strong style="color: #fff;">Algoritmos Preditivos</strong> para criar uma solução de navegação autônoma, acompanhada de uma plataforma web para monitoramento e análise em tempo real.
+        Desenvolvimento de um micromouse: um robô autônomo inteligente capaz de explorar e resolver labirintos desconhecidos com alta eficiência. O projeto integra soluções de <strong style="color: #fff;">Energia</strong>, <strong style="color: #fff;">Estrutura</strong>, <strong style="color: #fff;">Hardware</strong> e <strong style="color: #fff;">Software</strong> para criar uma plataforma robusta de navegação autônoma e monitoramento em tempo real.
       </p>
       <div class="presentation-stats">
         <div class="stat-card">

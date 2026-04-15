@@ -23,7 +23,7 @@ Lembrem sempre de evitar enviar arquivos muito grandes (>5MB). No caso de vídeo
 ### 1. Clone este repositório
 
 ```bash
-git clone https://github.com/seu-usuario/2026.1_PI1_Grupo2_Lui.git
+git clone https://github.com/fcte-pi1/2026.1_PI1_Grupo2_Lui.git
 ```
 
 ### 2. Pré-requisitos

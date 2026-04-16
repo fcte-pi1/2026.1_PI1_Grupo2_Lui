@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="css/team-cards.css">
+<link rel="stylesheet" href="assets/css/team-cards.css">
 
 <canvas id="bgCanvas"></canvas>
 

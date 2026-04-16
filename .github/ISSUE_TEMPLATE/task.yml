@@ -26,32 +26,31 @@ body:
     attributes:
       label: Tipo de Tarefa
       options:
-        - Bug
-        - Software (Desenvolvimento geral em src/)
-        - Firmware (Código embarcado em src/firmware/)
-        - Backend (Lógica de servidor em src/backend/)
-        - Frontend (Interface de usuário em src/frontend/)
-        - Hardware (Circuitos em hw/)
-        - Mecânica (Projeto estrutural em mec/)
-        - Refatoração / Limpeza
-        - Bug
-        - CAD (Modelagem de peças e estruturas)
-        - Esquemático (Desenho de diagramas elétricos)
-        - Simulação (Circuitos e sistemas dinâmicos)
-        - Diagrama (Arquitetura e fluxogramas)
-        - Design / Identidade Visual
-        - Relatório (Escrita técnica profissional)
-        - LaTeX (Formatação e compilação)
-        - Orçamento (Levantamento de custos e BOM)
-        - Documentação (Guias, READMEs e tutoriais)
-        - Organização (Gestão de pastas e equipe)
-        - Datasheet (Pesquisa técnica de componentes)
-        - Infraestrutura
-        - Segurança / Redes
-        - Testes (Validação física e funcional)
-        - Modelagem (Equações e modelos matemáticos)
-        - Manufatura (Planejamento e montagem)
-        - Prototipagem (Impressão 3D e fabricação rápida)
+        - "Software (Desenvolvimento geral em src/)"
+        - "Firmware (Código embarcado em src/firmware/)"
+        - "Backend (Lógica de servidor em src/backend/)"
+        - "Frontend (Interface de usuário em src/frontend/)"
+        - "Hardware (Circuitos em hw/)"
+        - "Mecânica (Projeto estrutural em mec/)"
+        - "Refatoração / Limpeza"
+        - "Bug"
+        - "CAD (Modelagem de peças e estruturas)"
+        - "Esquemático (Desenho de diagramas elétricos)"
+        - "Simulação (Circuitos e sistemas dinâmicos)"
+        - "Diagrama (Arquitetura e fluxogramas)"
+        - "Design / Identidade Visual"
+        - "Relatório (Escrita técnica profissional)"
+        - "LaTeX (Formatação e compilação)"
+        - "Orçamento (Levantamento de custos e BOM)"
+        - "Documentação (Guias, READMEs e tutoriais)"
+        - "Organização (Gestão de pastas e equipe)"
+        - "Datasheet (Pesquisa técnica de componentes)"
+        - "Infraestrutura"
+        - "Segurança / Redes"
+        - "Testes (Validação física e funcional)"
+        - "Modelagem (Equações e modelos matemáticos)"
+        - "Manufatura (Planejamento e montagem)"
+        - "Prototipagem (Impressão 3D e fabricação rápida)"
     validations:
       required: true
 

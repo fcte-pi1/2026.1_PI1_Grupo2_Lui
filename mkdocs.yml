@@ -10,6 +10,7 @@ extra_css:
   - assets/css/custom-general.css
   - assets/css/maze-bg.css
   - assets/css/home-sections.css
+  - assets/css/team-cards.css
 
 extra_javascript:
   - assets/js/maze-bg.js

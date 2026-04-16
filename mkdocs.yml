@@ -54,7 +54,7 @@ theme:
 # Estrutura de Navegação (Menu)
 nav:
   - Home: index.md
-  - Energia: docs/energia/index.md
-  - Hardware: docs/hardware/index.md
-  - Software: docs/software/index.md
-  - Estrutura: docs/estrutura/index.md
+  - Energia: energia/energia.md
+  - Hardware: hardware/hardware.md
+  - Software: software/software.md
+  - Estrutura: estrutura/estrutura.md

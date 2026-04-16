@@ -1,0 +1,65 @@
+name: "Tarefa / Task"
+description: Para atividades técnicas, manutenção ou documentação.
+title: "tarefa: [Título Curto]"
+labels: ["geral"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Detalhes Técnicos
+        Descreva a necessidade técnica, infraestrutura ou manutenção.
+
+  - type: dropdown
+    id: area-labels
+    attributes:
+      label: Área Responsável
+      options:
+        - Energia
+        - Estrutura
+        - Hardware
+        - Software
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type-labels
+    attributes:
+      label: Tipo de Tarefa
+      options:
+        - Bug
+        - Documentação
+        - Eletrônica
+        - Estruturas
+        - Infraestrutura
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Descrição da Demanda"
+      placeholder: |
+        Exemplo: 
+        Configurar o ambiente de CI/CD para realizar o deploy automático da documentação MkDocs no GitHub Pages sempre que houver um push na main.
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-check
+    attributes:
+      label: "Passos / Critérios de Conclusão"
+      description: "Itens técnicos que precisam ser validados."
+      value: |
+        - [ ] Criar arquivo .github/workflows/deploy.yml.
+        - [ ] Configurar permissões de escrita do GITHUB_TOKEN.
+        - [ ] Validar se o link do site está atualizando corretamente.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-info
+    attributes:
+      label: "Observações"
+      placeholder: "Links de referência, logs de erro ou comandos específicos."
+    validations:
+      required: false

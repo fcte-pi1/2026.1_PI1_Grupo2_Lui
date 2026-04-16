@@ -1,0 +1,54 @@
+name: "História de Usuário"
+description: Para novas funcionalidades sob a perspectiva do usuário.
+title: "história: [Título Curto]"
+labels: ["história de usuário"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Definição da História
+        Utilize o formato padrão para descrever a necessidade do usuário.
+
+  - type: dropdown
+    id: area-labels
+    attributes:
+      label: Área Responsável
+      options:
+        - Energia
+        - Estrutura
+        - Hardware
+        - Software
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-story
+    attributes:
+      label: "Estrutura da História"
+      placeholder: |
+        Exemplo:
+        Eu como [Piloto do Drone]
+        Gostaria de [Visualizar o nível da bateria em tempo real]
+        Para [Evitar quedas por falta de energia]
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: "Critérios de Aceite (Checklist)"
+      description: "Liste os requisitos para conclusão. Estes itens virarão checkboxes editáveis após o envio."
+      value: |
+        - [ ] O sistema deve ler a voltagem do sensor analógico.
+        - [ ] A interface deve exibir a porcentagem de 0 a 100%.
+        - [ ] Um alerta visual deve piscar quando a bateria estiver abaixo de 20%.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: "Validação"
+      options:
+        - label: "Esta história foi discutida com a equipe."
+          required: true

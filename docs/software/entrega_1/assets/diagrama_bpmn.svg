@@ -87,10 +87,8 @@
   <path d="M1120 745 L1210 745" class="flow"/>
   <path d="M1430 745 L1620 745 L1620 960" class="flow"/>
   <path d="M1620 960 L1620 790" class="flow"/>
-  <path d="M1620 960 L1620 880 L1510 880 L1510 745" class="flow"/>
   <path d="M1740 745 L1860 745" class="flow"/>
-  <path d="M1960 745 L1950 745 L1950 700" class="flow"/>
-  <path d="M1820 745 L1740 745" class="flow"/>
+  <path d="M1960 745 L1960 700" class="flow"/>
   <path d="M1950 610 L1950 530" class="flow"/>
   <path d="M1820 485 L1740 485" class="flow"/>
   <path d="M1510 485 L1430 485 L1320 485 L1320 260" class="flow"/>

@@ -13,6 +13,48 @@
 
 ---
 
+## Fluxo de Trabalho (Git & GitHub)
+
+### 1. Gestão de Branches
+* **Branch Principal:** Nunca realize commits diretamente na `main`.
+* **Nomenclatura:** Crie branches descritivas a partir da `main` (ex: `feat/perfil-usuario`, `fix/erro-sensor-distancia`).
+
+### 2. Sincronização
+Mantenha sua branch atualizada para evitar conflitos complexos no momento do merge:
+
+```bash
+# Atualize sua base local
+git checkout main
+git pull origin main
+
+# Integre as mudanças à sua branch de trabalho
+git checkout sua-branch
+git merge main
+```
+
+### 3. Abertura de Pull Requests (PR)
+Ao finalizar uma tarefa, abra um PR para a `main`. **É obrigatório o preenchimento completo do template padrão**, detalhando:
+* **O quê** foi feito e o **porquê**.
+* A **Issue** relacionada (ex: `#42`).
+* Lista objetiva de **alterações**.
+* Passo a passo de **como testar** (simulador ou físico).
+
+### 4. Revisão por Pares (Code Review)
+* Todo PR deve ser revisado por, no mínimo, um colega de equipe.
+* O merge só está autorizado após a aprovação e a verificação do checklist de testes.
+
+## Padrões de Qualidade
+
+* **Commits Semânticos:** Utilize o padrão *Conventional Commits*:
+    * `feat:` Novas funcionalidades.
+    * `fix:` Correção de bugs.
+    * `docs:` Melhorias na documentação.
+    * `refactor:` Alterações de código que não mudam o comportamento final.
+* **Granularidade:** Faça commits pequenos e focados em uma única alteração lógica.
+* **Documentação:** Mantenha os arquivos README e o status das Issues sempre atualizados.
+
+---
+
 ## Como executar a documentação localmente
 
 ### 1. Clone este repositório

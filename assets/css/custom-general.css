@@ -194,8 +194,9 @@ body {
 /* Sidebar Navigation */
 @media screen and (min-width: 76.25em) {
   /* Hidden active item */
+  /* Active item visibility restored */
   .md-nav__item.md-nav__item--active {
-    display: none !important;
+    display: block;
   }
 
   .md-nav__link,
@@ -413,8 +414,9 @@ body {
 /* Page Navigation */
 @media screen and (min-width: 76.25em) {
   /* Hidden nav title */
+  /* Nav title visibility restored */
   .md-nav__title {
-    display: none !important;
+    display: block;
   }
 
   .md-nav__link {

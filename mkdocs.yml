@@ -57,5 +57,18 @@ nav:
   - Home: index.md
   - Energia: energia/energia.md
   - Hardware: hardware/hardware.md
-  - Software: software/software.md
+  - Software:
+      - Visão Geral: software/software.md
+      - Requisitos e Backlog:
+          - Histórias de Usuário: software/entrega_1/historias_usuario.md
+          - Requisitos Não-Funcionais: software/entrega_1/requisitos_nao_funcionais.md
+      - Modelagem e Fluxos:
+          - BPMN (Processos): software/entrega_1/diagrama_bpmn.md
+          - Casos de Uso: software/entrega_1/diagrama_casos_uso.md
+          - Diagrama de Estados: software/entrega_1/diagrama_estados.md
+      - Arquitetura:
+          - Estrutura do Sistema: software/entrega_1/diagrama_arquitetura.md
+          - DER (Banco de Dados): software/entrega_1/diagrama_der.md
+      - Testes:
+          - Matriz de Testes Funcionais: software/entrega_1/matriz_testes_funcionais.md
   - Estrutura: estrutura/estrutura.md

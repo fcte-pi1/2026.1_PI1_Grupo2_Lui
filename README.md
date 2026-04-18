@@ -1,22 +1,59 @@
+### Equipe de Desenvolvimento
+**PI1 Grupo 02 — Professor Lui**
 
+<div align="center">
 
+| [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/arthurrochamoreira.png" width="100">](https://github.com/arthurrochamoreira)<br><nobr><sub style="font-size: 80%;">Arthur Moreira</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/arthurlleite.png" width="100">](https://github.com/arthurlleite)<br><nobr><sub style="font-size: 80%;">Arthur Carv.</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/cvbmiranda.png" width="100">](https://github.com/cvbmiranda)<br><nobr><sub style="font-size: 80%;">Caio Vilas B.</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/eduardoferre.png" width="100">](https://github.com/eduardoferre)<br><nobr><sub style="font-size: 80%;">Eduardo Ferr.</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/menali17.png" width="100">](https://github.com/menali17)<br><nobr><sub style="font-size: 80%;">Enzo Menali</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/flaviarebelato.png" width="100">](https://github.com/flaviarebelato)<br><nobr><sub style="font-size: 80%;">Flávia Melo</sub></nobr> |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/GabrielDiniz12.png" width="100">](https://github.com/GabrielDiniz12)<br><nobr><sub style="font-size: 80%;">Gabriel Diniz</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/gusmoles.png" width="100">](https://github.com/gusmoles)<br><nobr><sub style="font-size: 80%;">Guilherme Gus.</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/isadoraqo.png" width="100">](https://github.com/isadoraqo)<br><nobr><sub style="font-size: 80%;">Isadora Quar.</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/github.png" width="100">](#)<br><nobr><sub style="font-size: 80%;">João V. Pires</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/xLucasMelo.png" width="100">](https://github.com/xLucasMelo)<br><nobr><sub style="font-size: 80%;">Lucas Alves</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/github.png" width="100">](#)<br><nobr><sub style="font-size: 80%;">Luisa Mel</sub></nobr> |
+| [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/heyclarinham.png" width="100">](https://github.com/heyclarinham)<br><nobr><sub style="font-size: 80%;">Maria Clara</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/nandjala.png" width="100">](https://github.com/nandjala)<br><nobr><sub style="font-size: 80%;">Nandjala</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/gpaulovit.png" width="100">](https://github.com/gpaulovit)<br><nobr><sub style="font-size: 80%;">Paulo Vitor</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/dev-americo.png" width="100">](https://github.com/dev-americo)<br><nobr><sub style="font-size: 80%;">Pedro H. A.</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/pwdrinho.png" width="100">](https://github.com/pwdrinho)<br><nobr><sub style="font-size: 80%;">Pedro Lucas</sub></nobr> | [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/github.png" width="100">](#)<br><nobr><sub style="font-size: 80%;">Theo Medeiros</sub></nobr> |
+| [<img src="https://res.cloudinary.com/dll5ypaj7/image/fetch/f_auto,w_150,h_150,c_fill,r_30,bo_2px_solid_rgb:2d333b/https://github.com/viniiribeiro.png" width="100">](https://github.com/viniiribeiro)<br><nobr><sub style="font-size: 80%;">Vinícius Rib.</sub></nobr> | | | | | |
 
-# Template PI1
+</div>
 
-Esse é o _template_ de repositório para ser utilizado pelos grupos de PI1 para organizar seu projeto. O _template_ é dividido em pastas, onde cada parte do projeto deve ser armazenada. Os arquivos a serem armazenados incluem documentação, código-fonte, arquivos de CAD, esquemáticos, arquivos de simulação de circuitos, e dados.
+---
 
-A organização e a correta utilização do repositório do projeto serão considerados na avaliação do grupo. Dessa forma, recomenda-se que *todos os membros* do grupo leiam as instruções deste repositório, aprendam a a utilizar o git (caso ainda não saibam) e também que o grupo combine uma estratégia de como irão utilizar o repositório em conjunto. Dessa forma não deixem de utilizar todas as ferramentas que o GitHub oferece, incluindo branchs, PRs, revisões, issues, calendários, dentre outros.
+## Fluxo de Trabalho (Git & GitHub)
 
-Lembrem sempre de evitar enviar arquivos muito grandes (>5MB). No caso de vídeos e outros arquivos pesados que são necessários, armazenar o arquivo em outra plataforma e colocar aqui apenas o _link_.
+### 1. Gestão de Branches
+* **Branch Principal:** Nunca realize commits diretamente na `main`.
+* **Nomenclatura:** Crie branches descritivas a partir da `main` (ex: `feat/perfil-usuario`, `fix/erro-sensor-distancia`).
 
-> [!IMPORTANT]
-> A estrutura de pastas do projeto não reflete a divisão de equipes. Os membros podem e devem trabalhar nas diferentes pastas a depender da necessidade do projeto.
+### 2. Sincronização
+Mantenha sua branch atualizada para evitar conflitos complexos no momento do merge:
 
-## Utilização
+```bash
+# Atualize sua base local
+git checkout main
+git pull origin main
 
-1. Crie o repositório do projeto utilizando a nomenclatura padrão no formato: `<ano>.<semestre>_PI1_Grupo<n>_<professor>`. Como um exemplo, um nome formado corretamente seria `2026.1_PI1_Grupo1_Diogo`. 
+# Integre as mudanças à sua branch de trabalho
+git checkout sua-branch
+git merge main
+```
 
-2. Crie uma equipe do projeto com a mesma nomenclatura do repositório porém com o sufixo `_Equipe`, como `2026.1_PI1_Grupo1_Diogo_Equipe`, e solicite, caso necessário, que a equipe tenha permissão de escrita no repositório do projeto.
+### 3. Abertura de Pull Requests (PR)
+Ao finalizar uma tarefa, abra um PR para a `main`. **É obrigatório o preenchimento completo do template padrão**, detalhando:
+* **O quê** foi feito e o **porquê**.
+* A **Issue** relacionada (ex: `#42`).
+* Lista objetiva de **alterações**.
+* Passo a passo de **como testar** (simulador ou físico), se aplicável.
+
+### 4. Revisão por Pares (Code Review)
+* Todo PR deve ser revisado por, no mínimo, um colega de equipe.
+* O merge só está autorizado após a aprovação e a verificação do checklist de testes.
+
+## Padrões de Qualidade
+
+* **Commits Semânticos:** Utilize o padrão *Conventional Commits*:
+    * `feat:` Novas funcionalidades.
+    * `fix:` Correção de bugs.
+    * `docs:` Melhorias na documentação.
+    * `refactor:` Alterações de código que não mudam o comportamento final.
+* **Granularidade:** Faça commits pequenos e focados em uma única alteração lógica.
+* **Documentação:** Mantenha os arquivos README e o status das Issues sempre atualizados.
+
+---
 
 ## Como executar a documentação localmente
 

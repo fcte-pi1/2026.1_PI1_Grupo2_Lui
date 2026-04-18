@@ -1,6 +1,6 @@
 name: "História de Usuário"
 description: Para novas funcionalidades sob a perspectiva do usuário.
-title: "história: [Título Curto]"
+title: "US: [Título Curto]"
 labels: ["história de usuário"]
 body:
   - type: markdown

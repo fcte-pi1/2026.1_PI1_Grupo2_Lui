@@ -1,6 +1,6 @@
 name: "Tarefa / Task"
 description: Para atividades técnicas, manutenção ou documentação.
-title: "tarefa: [Título Curto]"
+title: "Tarefa: [Título Curto]"
 labels: ["geral"]
 body:
   - type: markdown

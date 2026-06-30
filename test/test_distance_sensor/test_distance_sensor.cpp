@@ -23,19 +23,18 @@ void test_sensor_initialization_success(void) {
 }
 
 void test_sensor_independence_left_isolation(void) {
-    // Baseline: leitura inicial
+    //leitura inicial
     ToFSensorReading baseline = lerTodosSensores();
     TEST_ASSERT_FALSE(baseline.erroEsq);
     TEST_ASSERT_FALSE(baseline.erroDir);
 
-    // Lê sensor esquerdo múltiplas vezes seguidas
+    // Lê sensor esquerdo 
     for (int i = 0; i < 5; i++) {
         ToFSensorReading reading = lerTodosSensores();
         TEST_ASSERT_FALSE(reading.erroEsq);
         TEST_ASSERT_FALSE(reading.erroDir);
 
         // Validar que leitura direita não é afetada drasticamente
-        // (permitindo variação pequena da distância)
         if (baseline.distDir < 8000 && reading.distDir < 8000) {
             // Se ambas estão em range, a diferença não deve ser > 200mm
             if (baseline.distDir > 200) {
@@ -48,12 +47,12 @@ void test_sensor_independence_left_isolation(void) {
 }
 
 void test_sensor_independence_right_isolation(void) {
-    // Baseline: leitura inicial
+    //leitura inicial
     ToFSensorReading baseline = lerTodosSensores();
     TEST_ASSERT_FALSE(baseline.erroDir);
     TEST_ASSERT_FALSE(baseline.erroEsq);
 
-    // Lê sensor direito múltiplas vezes seguidas
+    // Lê sensor direito
     for (int i = 0; i < 5; i++) {
         ToFSensorReading reading = lerTodosSensores();
         TEST_ASSERT_FALSE(reading.erroDir);
@@ -71,26 +70,25 @@ void test_sensor_independence_right_isolation(void) {
 }
 
 void test_sensor_addresses_unique(void) {
-    // Verifica que cada sensor responde sem erro (implica endereço único)
+    // Verifica que cada sensor responde sem erro 
     ToFSensorReading reading = lerTodosSensores();
 
-    // Se não há timeout, significa que cada sensor está respondendo corretamente
-    // em seu endereço I2C único
+    // Se não há timeout, significa que cada sensor está respondendo corretamente em seu endereço único
     TEST_ASSERT_FALSE(reading.erroEsq);
     TEST_ASSERT_FALSE(reading.erroFrente);
     TEST_ASSERT_FALSE(reading.erroDir);
 }
 
 void test_four_combinations(void) {
-    // Combinação 1: Ambos os sensores livres (sem obstrução próxima)
-    // Esperado: sem timeout, ambas > 300mm (distância mínima típica para objeto próximo)
+    // Ambos os sensores livres (sem obstrução próxima)
+    // Esperado: sem timeout, ambas > 300mm 
     {
         ToFSensorReading reading = lerTodosSensores();
         TEST_ASSERT_FALSE(reading.erroEsq);
         TEST_ASSERT_FALSE(reading.erroDir);
     }
 
-    // Combinação 2: Sensor esquerdo com leitura válida, verificar direito
+    // Sensor esquerdo com leitura válida, verificar direito
     // (ambos devem responder sem interferência)
     {
         ToFSensorReading reading1 = lerTodosSensores();
@@ -103,7 +101,7 @@ void test_four_combinations(void) {
         TEST_ASSERT_FALSE(reading2.erroDir);
     }
 
-    // Combinação 3: Validar estabilidade - múltiplas leituras seguidas
+    // Validar estabilidade - múltiplas leituras seguidas
     {
         uint16_t dist_esq_baseline = 0;
         uint16_t dist_dir_baseline = 0;
@@ -131,7 +129,7 @@ void test_four_combinations(void) {
         }
     }
 
-    // Combinação 4: Validar que um sensor bloqueado não afeta o outro
+    // Validar que um sensor bloqueado não afeta o outro
     // Fazemos múltiplas leituras para garantir consistência
     {
         for (int i = 0; i < 3; i++) {

@@ -27,49 +27,32 @@ void configurarMPU() {
   delay(100); // Pequeno tempo para o sensor estabilizar
 }
 
-void lerExibirMPU() {
+static float yaw_atual = 0.0f;
+static unsigned long ultimo_tempo_mpu = 0;
 
-  // Objetos para armazenar os eventos do sensor
+void mpu_update() {
   sensors_event_t a, g, temp;
-
-  /* 
-  
-  a - guarda as forças lineares:
-
-    a.acceleration.x = força linear no eixo X (m/s^2) 
-    a.acceleration.y = força linear no eixo Y (m/s^2)
-    a.acceleration.z = força linear no eixo Z (m/s^2)
-
-  */
-
-  /* 
-  
-  g - guarda a velocidade angular (giro) em rad/s:
-
-    g.gyro.x = velocidade angular no eixo X (rad/s) 
-    g.gyro.y = velocidade angular no eixo Y (rad/s)
-    g.gyro.z = velocidade angular no eixo Z (rad/s)
-
-    multiplicando por 57.2958 convertemos de rad/s para graus/s
-
-  */
-
-  // temp - temperatura do sensor 
-  
-  // Captura os dados mais recentes
   mpu.getEvent(&a, &g, &temp);
 
-  // Converte a rotação Z de rad/s para graus/s
-  float giroZ_graus = g.gyro.z * 57.2958; // podemos tirar isso caso seja necessário
+  unsigned long tempo_agora = millis();
+  if (ultimo_tempo_mpu == 0) {
+      ultimo_tempo_mpu = tempo_agora;
+      return;
+  }
 
-  // Exibe a Aceleração X e Y (em m/s^2)
-  Serial.print("Acel X: ");
-  Serial.print(a.acceleration.x);
-  Serial.print(" m/s^2 \t|\t Y: ");
-  Serial.print(a.acceleration.y);
-  
-  // Exibe a Rotação (Velocidade Angular) no Eixo Z
-  Serial.print(" m/s^2 \t|\t Giro Z (Yaw): ");
-  Serial.print(giroZ_graus);
-  Serial.println(" deg/s");
+  float dt = (tempo_agora - ultimo_tempo_mpu) / 1000.0f;
+  ultimo_tempo_mpu = tempo_agora;
+
+  // Converte a rotação Z de rad/s para graus/s e integra
+  float giroZ_graus = g.gyro.z * 57.2958f; 
+  yaw_atual += giroZ_graus * dt;
+}
+
+float mpu_get_yaw() {
+    return yaw_atual;
+}
+
+void mpu_reset_yaw() {
+    yaw_atual = 0.0f;
+    ultimo_tempo_mpu = 0; // Reinicia o delta time
 }

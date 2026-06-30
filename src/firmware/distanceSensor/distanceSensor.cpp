@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 #include "pins.h"
+#include "../motors/motors.h"
 
 // Criando os objetos para cada sensor
 VL53L0X sensorEsq;
@@ -110,4 +111,92 @@ void lerExibirSensoresToF() {
 
   // Delay para testes, podemos tirar depois para ter leituras mais rápidas
   delay(50);
+}
+
+// Buffers circulares — um por sensor, totalmente independentes
+static uint16_t bufferEsq[NUM_AMOSTRAS]    = {0};
+static uint16_t bufferFrente[NUM_AMOSTRAS] = {0};
+static uint16_t bufferDir[NUM_AMOSTRAS]    = {0};
+static int  bufferIndex = 0;
+static bool bufferCheio = false;
+
+// Estados anteriores para detecção de transição
+static bool estadoParedeEsq    = false;
+static bool estadoParedeFrente = false;
+static bool estadoParedeDir    = false;
+
+void atualizar_filtro_media() {
+    ToFSensorReading leitura = lerTodosSensores();
+
+    // Se houve timeout, valor alto usado (8190)
+    uint16_t valEsq = leitura.erroEsq ? 8190 : leitura.distEsq;
+    uint16_t valFrente = leitura.erroFrente ? 8190 : leitura.distFrente;
+    uint16_t valDir = leitura.erroDir ? 8190 : leitura.distDir;
+
+    // Aplicar correção no sensor Esquerdo (Sensor 1)
+    if (valEsq < 8000) {
+        int corrigido = (int)valEsq + DESVIO_SENSOR_1;
+        valEsq = (corrigido > 0) ? (uint16_t)corrigido : 0;
+    }
+
+    bufferEsq[bufferIndex] = valEsq;
+    bufferFrente[bufferIndex] = valFrente;
+    bufferDir[bufferIndex] = valDir;
+
+    bufferIndex++;
+    if (bufferIndex >= NUM_AMOSTRAS) {
+        bufferIndex = 0;
+        bufferCheio = true;
+    }
+}
+
+static uint16_t calcularMedia(uint16_t* buffer) {
+    int maxIt = bufferCheio ? NUM_AMOSTRAS : bufferIndex;
+    if (maxIt == 0) return 8190; // Sem leituras
+
+    uint32_t soma = 0;
+    for (int i = 0; i < maxIt; i++) {
+        soma += buffer[i];
+    }
+    return (uint16_t)(soma / maxIt);
+}
+
+bool tem_parede_esquerda() {
+    return calcularMedia(bufferEsq) < LIMITE_PAREDE;
+}
+
+bool tem_parede_frente() {
+    return calcularMedia(bufferFrente) < LIMITE_PAREDE;
+}
+
+bool tem_parede_direita() {
+    return calcularMedia(bufferDir) < LIMITE_PAREDE;
+}
+
+void verificar_emergencia() {
+    if (calcularMedia(bufferFrente) < LIMITE_SEGURANCA_FRENTE) {
+        motors_stop_all();
+        Serial.println("[EMERGÊNCIA] Obstáculo iminente! Freando os motores!");
+    }
+}
+
+void testar_sensores_paredes() {
+    bool novaEsq = tem_parede_esquerda();
+    bool novaFrente = tem_parede_frente();
+    bool novaDir = tem_parede_direita();
+
+    if (novaEsq != estadoParedeEsq) {
+        estadoParedeEsq = novaEsq;
+        Serial.println(novaEsq ? "[MAP MANAGER] Parede Esquerda Detectada!" : "[MAP MANAGER] Parede Esquerda Removida!");
+    }
+
+    if (novaFrente != estadoParedeFrente) {
+        estadoParedeFrente = novaFrente;
+        Serial.println(novaFrente ? "[MAP MANAGER] Parede Frontal Detectada!" : "[MAP MANAGER] Parede Frontal Removida!");
+    }
+
+    if (novaDir != estadoParedeDir) {
+        estadoParedeDir = novaDir;
+        Serial.println(novaDir ? "[MAP MANAGER] Parede Direita Detectada!" : "[MAP MANAGER] Parede Direita Removida!");
+    }
 }

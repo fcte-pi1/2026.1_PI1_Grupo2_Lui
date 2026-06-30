@@ -1,13 +1,19 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include "pins.h"
 #include "motors/motors.h"
+#include "distanceSensor/distanceSensor.h"
+#include "mpu/mpu.h"
+#include "encoder/encoder.h"
+#include "pid/pid.h"
 
-static constexpr int VEL_TESTE = 150; 
+static constexpr int VEL_TESTE = 150;
 
 void setup() {
 
     Serial.begin(115200);
     delay(2000);
-    
+
     Serial.println("\n=======================================");
     Serial.println(" BOOT Micromouse");
     Serial.println("=======================================\n");
@@ -43,17 +49,41 @@ void setup() {
     Serial.println(" BOOT Completo ");
     Serial.println("=======================================\n");
 
+    // TESTE DE MESA CT-10: Teste do PID
+    Serial.println("[CT-10] Iniciando teste do PID...");
+    resetar_pid();
+    float erros_simulados[] = {-10.0f, 0.0f, 10.0f};
+    
+    for (int i = 0; i < 3; i++) {
+        float erro = erros_simulados[i];
+        float ajuste = calcular_pid(erro, 0.02f); // 20ms delta
+        Serial.print("Erro Simulado: ");
+        Serial.print(erro);
+        Serial.print(" => Ajuste PID: ");
+        Serial.println(ajuste);
+        
+        int vel_esq = VEL_TESTE + (int)ajuste;
+        int vel_dir = VEL_TESTE - (int)ajuste;
+        Serial.print("  Motores (Esq / Dir): ");
+        Serial.print(vel_esq);
+        Serial.print(" / ");
+        Serial.println(vel_dir);
+    }
+    Serial.println("[CT-10] Teste concluído.\n");
+
     loop();
 }
 
 void loop() {
 
-    Serial.println("MPU-6500:\n");
-    lerExibirMPU();
-    Serial.println("--------------------------------------------------\n");
-    
-    Serial.println("Sensores:\n");
-    lerExibirSensoresToF();
-    Serial.println("--------------------------------------------------\n");
+    // Atualiza o filtro de média dos sensores de distância
+    atualizar_filtro_media();
 
+    // Verifica freio de emergência
+    verificar_emergencia();
+
+    // Imprime mock do map_manager se houve mudança no estado das paredes
+    testar_sensores_paredes();
+
+    delay(20);
 }

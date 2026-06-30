@@ -1,6 +1,9 @@
 #include "movimento.h"
 #include "../motors/motors.h"
 #include "../encoder/encoder.h"
+#include "../pid/pid.h"
+#include "../distanceSensor/distanceSensor.h"
+#include "../mpu/mpu.h"
 #include <math.h>
 
 // ── Cálculos derivados das constantes ────────────────
@@ -30,13 +33,52 @@ static void aguardar_pulsos(long alvo_esq, long alvo_dir) {
     motors_stop_all();
 }
 
-// ── Mover 1 célula para frente (180 mm) ──────────────
-void mover_frente_celula() {
+// Mover 1 célula para frente (180 mm) com controle PID
+void avancar_celula() {
     encoder_esquerdo_reset();
     encoder_direito_reset();
-    motor_esquerdo_set(VEL_PADRAO);
-    motor_direito_set(VEL_PADRAO);
-    aguardar_pulsos(PULSOS_CELULA, PULSOS_CELULA);
+    resetar_pid();
+    mpu_reset_yaw();
+
+    unsigned long inicio = millis();
+    unsigned long ultimo_tempo_pid = inicio;
+
+    while (true) {
+        long esq = abs(encoder_esquerdo_get());
+        long dir = abs(encoder_direito_get());
+
+        if (esq >= PULSOS_CELULA && dir >= PULSOS_CELULA) break;
+        if (millis() - inicio > TIMEOUT_MS) break;
+
+        // Atualizar leituras de hardware
+        atualizar_filtro_media();
+        mpu_update();
+
+        unsigned long agora = millis();
+        float dt = (agora - ultimo_tempo_pid) / 1000.0f;
+        ultimo_tempo_pid = agora;
+
+        float erro = obter_erro_centralizacao();
+        float ajuste = calcular_pid(erro, dt);
+
+        // Aplicar PID:
+        // Erro positivo = muito na esquerda. Precisamos virar à direita.
+        // Virar à direita = roda esquerda gira mais rápido, direita mais devagar.
+        int vel_esq = VEL_PADRAO + (int)ajuste;
+        int vel_dir = VEL_PADRAO - (int)ajuste;
+
+        // Limites do PWM (0 a 255)
+        if (vel_esq > 255) vel_esq = 255;
+        if (vel_esq < 0) vel_esq = 0;
+        if (vel_dir > 255) vel_dir = 255;
+        if (vel_dir < 0) vel_dir = 0;
+
+        motor_esquerdo_set(vel_esq);
+        motor_direito_set(vel_dir);
+
+        delay(5); // Pequeno atraso para não saturar a CPU
+    }
+    motors_stop_all();
 }
 
 // ── Mover 1 célula para trás (180 mm) ────────────────

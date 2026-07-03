@@ -23,4 +23,8 @@ void mover_tras(int velocidade, unsigned long tempo_ms);
 void girar_esquerda(int velocidade, unsigned long tempo_ms);
 void girar_direita(int velocidade, unsigned long tempo_ms);
 
+// ── Funções de Velocidade ─────────────────────────────
+void atualizar_velocidade();       // Deve ser chamada constantemente no loop
+float obter_velocidade_mm_s();     // Retorna a velocidade atual em mm/s
+
 #endif 

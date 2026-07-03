@@ -25,6 +25,7 @@
 #define PIN_TOF3_XSHUT  15 // XSHUT do ToF #3: Ativação seletiva (Strapping pin - cuidado no boot)
 
 // ── Bateria ───────────────────────────────────────────
-// #define PIN_BAT_ADC     // A definir: Divisor resistivo da bateria (obrigatório usar ADC1 para operar com Wi-Fi)
+// #define PIN_BAT_ADC 36 // Divisor resistivo da bateria (ADC1_CH0). Resistores: R1 = 20k (VBat), R2 = 10k (GND). Fator = 3.
+#define PIN_BAT_ADC     36
 
 #endif // PINS_H

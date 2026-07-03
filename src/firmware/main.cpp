@@ -6,6 +6,9 @@
 #include "mpu/mpu.h"
 #include "encoder/encoder.h"
 #include "pid/pid.h"
+#include "bateria/bateria.h"
+#include "telemetria/telemetria.h"
+#include "movimento/movimento.h"
 
 static constexpr int VEL_TESTE = 150;
 
@@ -49,6 +52,10 @@ void setup() {
     Serial.println(" BOOT Completo ");
     Serial.println("=======================================\n");
 
+    Serial.println("[TELEMETRIA] Inicializando link Bluetooth SPP...");
+    telemetry_init();
+    Serial.println("-> Telemetria configurada.\n");
+
     // TESTE DE MESA CT-10: Teste do PID
     Serial.println("[CT-10] Iniciando teste do PID...");
     resetar_pid();
@@ -79,11 +86,21 @@ void loop() {
     // Atualiza o filtro de média dos sensores de distância
     atualizar_filtro_media();
 
+    // Atualiza o cálculo de velocidade real a partir dos encoders
+    atualizar_velocidade();
+
     // Verifica freio de emergência
     verificar_emergencia();
 
     // Imprime mock do map_manager se houve mudança no estado das paredes
     testar_sensores_paredes();
+
+    // Leitura real da bateria
+    float bat_v = ler_tensao_bateria();
+    float vel_mms = obter_velocidade_mm_s();
+
+    // Alimenta o sistema de telemetria periodicamente
+    telemetry_loop(bat_v, vel_mms);
 
     delay(20);
 }

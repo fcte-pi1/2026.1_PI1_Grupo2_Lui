@@ -44,6 +44,9 @@ void loop() {
             telemetry_init();
             map_init();
             
+            // Validando Flood Fill CT-14 / CT-45
+            testar_flood_fill();
+            
             estado_atual = VERIFICANDO;
             break;
             

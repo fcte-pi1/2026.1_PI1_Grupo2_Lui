@@ -13,7 +13,7 @@ struct ToFSensorReading {
 };
 
 // Inicializa os sensores de Distância ToF
-void configurarSensoresToF();
+bool configurarSensoresToF();
 
 // Lê os valores dos sensores ToF e exibe
 void lerExibirSensoresToF();

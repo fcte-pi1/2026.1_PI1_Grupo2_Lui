@@ -39,6 +39,8 @@ void atualizar_filtro_media();
 bool tem_parede_esquerda();
 bool tem_parede_frente();
 bool tem_parede_direita();
+uint16_t obter_distancia_esquerda();
+uint16_t obter_distancia_direita();
 void verificar_emergencia();
 void testar_sensores_paredes();
 

@@ -6,8 +6,14 @@
 // Inicializa o sensor MPU-6500 e configura suas escalas
 void configurarMPU();
 
-// Lê e exibe a Aceleração (X, Y) e o Giroscópio (Z)
-void lerExibirMPU();
+// Atualiza a integração do Yaw (deve ser chamada frequentemente no loop)
+void mpu_update();
+
+// Retorna o ângulo Yaw atual em graus
+float mpu_get_yaw();
+
+// Reseta o ângulo Yaw para 0
+void mpu_reset_yaw();
 
 #endif
 

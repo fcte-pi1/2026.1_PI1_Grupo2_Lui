@@ -6,19 +6,20 @@
 // V_pin = V_bat * (R2 / (R1 + R2)) => V_bat = V_pin * ((R1 + R2) / R2) = V_pin * 3.0
 static const float FATOR_DIVISOR = 3.0f;
 
+static float media_mv = 0.0f;
+static bool primeira_leitura = true;
+
 float ler_tensao_bateria() {
-    uint32_t soma_mv = 0;
-    const int num_leituras = 10;
+    uint32_t leitura_mv = analogReadMilliVolts(PIN_BAT_ADC);
     
-    // Fazemos múltiplas leituras para aplicar uma média simples e reduzir o ruído do ADC
-    for (int i = 0; i < num_leituras; i++) {
-        // analogReadMilliVolts usa a calibração de fábrica do ADC do ESP32,
-        // retornando o valor lido no pino já em milivolts.
-        soma_mv += analogReadMilliVolts(PIN_BAT_ADC);
-        delay(1); // Pequeno atraso para estabilizar a leitura
+    // Filtro passa-baixa simples (Média móvel exponencial)
+    // Reduz drasticamente o ruído sem usar `delay` e sem arrays.
+    if (primeira_leitura) {
+        media_mv = leitura_mv;
+        primeira_leitura = false;
+    } else {
+        media_mv = (media_mv * 0.9f) + (leitura_mv * 0.1f);
     }
-    
-    float media_mv = (float)soma_mv / (float)num_leituras;
     
     // Converte para Volts e aplica o fator do divisor de tensão
     float tensao_volts = (media_mv / 1000.0f) * FATOR_DIVISOR;

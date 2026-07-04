@@ -374,3 +374,8 @@ db/
 
 # Artefatos temporários do FUSE / OneDrive
 .fuse_hidden*
+
+# Variáveis de ambiente (Docker)
+.env
+.env.*
+!.env.example

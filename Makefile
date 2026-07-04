@@ -5,6 +5,7 @@ REQ  = requirements.txt
 
 VENV        = .venv
 SCRIPTS_DIR = scripts
+COMPOSE_DIR = src
 
 # Caminhos das stacks de teste — separador correto por OS para o `cd` do cmd.
 ifeq ($(OS),Windows_NT)
@@ -58,7 +59,7 @@ else
     PY_FROM_BACKEND = ../../$(VENV)/bin/python3
 endif
 
-.PHONY: help run run-backend run-frontend setup build-up venv install verify serve clean test test-backend test-frontend test-frontend-unit test-frontend-e2e test-coverage coverage-backend coverage-frontend install-backend install-frontend
+.PHONY: help run run-backend run-frontend setup build-up venv install verify serve clean test test-backend test-frontend test-frontend-unit test-frontend-e2e test-coverage coverage-backend coverage-frontend install-backend install-frontend install-deps docker-env docker-up docker-up-build docker-down docker-build docker-logs docker-ps docker-restart docker-clean docker-up-prod docker-up-prod-build docker-down-prod docker-build-prod docker-logs-prod docker-ps-prod docker-clean-prod
 
 # help: Lista os principais comandos de automação
 help:
@@ -85,6 +86,23 @@ help:
 	$(PRINT) "  make install-deps      - Instala dependencias do backend E do frontend."
 	$(PRINT) "  make install-backend   - Instala dependencias Python do backend."
 	$(PRINT) "  make install-frontend  - Instala dependencias Node do frontend."
+	$(PRINT) ""
+	$(PRINT) "Docker (desenvolvimento - hot-reload):"
+	$(PRINT) "  make docker-up         - Builda e sobe backend+frontend (foreground)."
+	$(PRINT) "  make docker-up-build   - Idem, em background (detached)."
+	$(PRINT) "  make docker-down       - Encerra os containers (mantem os volumes/dados)."
+	$(PRINT) "  make docker-logs       - Acompanha os logs dos containers."
+	$(PRINT) "  make docker-ps         - Lista os containers e seus status."
+	$(PRINT) "  make docker-restart    - Reinicia os servicos."
+	$(PRINT) "  make docker-clean      - Remove containers + volumes (apaga o historico salvo)."
+	$(PRINT) ""
+	$(PRINT) "Docker (producao - build estatico + Nginx):"
+	$(PRINT) "  make docker-up-prod       - Builda e sobe backend+frontend (foreground)."
+	$(PRINT) "  make docker-up-prod-build - Idem, em background (detached)."
+	$(PRINT) "  make docker-down-prod     - Encerra os containers (mantem os volumes/dados)."
+	$(PRINT) "  make docker-logs-prod     - Acompanha os logs dos containers."
+	$(PRINT) "  make docker-ps-prod       - Lista os containers e seus status."
+	$(PRINT) "  make docker-clean-prod    - Remove containers + volumes (apaga o historico salvo)."
 
 # run: Atalho principal para desenvolvimento local
 run:
@@ -213,3 +231,81 @@ test-coverage: coverage-backend coverage-frontend
 	@$(PRINT) "$(UI_BOLD)Cobertura gerada para backend e frontend.$(UI_RESET)"
 	@$(PRINT) "Backend : $(BACKEND_DIR)/coverage_html/index.html"
 	@$(PRINT) "Frontend: $(FRONTEND_DIR)/coverage/lcov-report/index.html"
+
+# ──────────────────────────────────────────────────────────────────────
+# Docker - desenvolvimento (hot-reload)
+# Orquestrado por src/docker-compose.yml: backend com uvicorn --reload e
+# frontend no servidor de dev do CRA, ambos com o codigo montado como volume.
+# ──────────────────────────────────────────────────────────────────────
+
+# docker-env: cria o .env a partir do .env.example se ainda nao existir
+docker-env:
+ifeq ($(OS),Windows_NT)
+	@cd $(COMPOSE_DIR) && if not exist .env copy .env.example .env >$(DEVNULL)
+else
+	@cd $(COMPOSE_DIR) && test -f .env || cp .env.example .env
+endif
+
+# docker-up: builda e sobe backend+frontend com um unico comando (foreground)
+docker-up: docker-env
+	@$(PRINT) "$(UI_BOLD)Subindo containers (modo desenvolvimento)...$(UI_RESET)"
+	@cd $(COMPOSE_DIR) && docker compose up --build
+
+# docker-up-build: idem, em background (detached)
+docker-up-build: docker-env
+	@$(PRINT) "$(UI_BOLD)Subindo containers em background (modo desenvolvimento)...$(UI_RESET)"
+	@cd $(COMPOSE_DIR) && docker compose up --build -d
+
+# docker-down: encerra os containers (mantem os volumes/dados)
+docker-down:
+	@cd $(COMPOSE_DIR) && docker compose down
+
+# docker-build: apenas builda as imagens, sem subir os containers
+docker-build: docker-env
+	@cd $(COMPOSE_DIR) && docker compose build
+
+# docker-logs: acompanha os logs dos servicos em tempo real
+docker-logs:
+	@cd $(COMPOSE_DIR) && docker compose logs -f
+
+# docker-ps: lista os containers do projeto e seu status
+docker-ps:
+	@cd $(COMPOSE_DIR) && docker compose ps
+
+# docker-restart: reinicia os servicos (util apos editar o .env, por exemplo)
+docker-restart:
+	@cd $(COMPOSE_DIR) && docker compose restart
+
+# docker-clean: remove containers, redes e volumes (inclui o SQLite e o
+# node_modules) - use com cuidado, isso apaga o historico de corridas salvo
+docker-clean:
+	@cd $(COMPOSE_DIR) && docker compose down -v --remove-orphans
+
+# ──────────────────────────────────────────────────────────────────────
+# Docker - producao (build estatico + Nginx)
+# Orquestrado por src/docker-compose.prod.yml: backend sem --reload e
+# frontend buildado e servido por Nginx (imagem final enxuta, sem Node).
+# ──────────────────────────────────────────────────────────────────────
+
+docker-up-prod: docker-env
+	@$(PRINT) "$(UI_BOLD)Subindo containers (modo producao)...$(UI_RESET)"
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml up --build
+
+docker-up-prod-build: docker-env
+	@$(PRINT) "$(UI_BOLD)Subindo containers em background (modo producao)...$(UI_RESET)"
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml up --build -d
+
+docker-down-prod:
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml down
+
+docker-build-prod: docker-env
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml build
+
+docker-logs-prod:
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml logs -f
+
+docker-ps-prod:
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml ps
+
+docker-clean-prod:
+	@cd $(COMPOSE_DIR) && docker compose -f docker-compose.prod.yml down -v --remove-orphans

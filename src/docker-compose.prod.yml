@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: micromouse-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - DB_PATH=${DB_PATH:-db/telemetria.db}
+    volumes:
+      - backend_db:/app/db
+    networks:
+      - micromouse-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - REACT_APP_API_BASE=${REACT_APP_API_BASE:-http://localhost:8000}
+    container_name: micromouse-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - micromouse-net
+    restart: unless-stopped
+
+networks:
+  micromouse-net:
+    driver: bridge
+
+volumes:
+  backend_db:
+    driver: local

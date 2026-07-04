@@ -673,6 +673,8 @@
       
         
       
+        
+      
     
     
     
@@ -736,6 +738,34 @@
     
   
     Backlog do Produto
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../requisitos_nao_funcionais/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requisitos Não-Funcionais
   
 
     
@@ -1678,17 +1708,6 @@
     <span class="md-ellipsis">
       
         CT-38 — Dez Clientes Simultâneos
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ct-39-tamanho-do-pacote-de-telemetria" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CT-39 — Tamanho do Pacote de Telemetria
       
     </span>
   </a>
@@ -2646,17 +2665,6 @@
     <span class="md-ellipsis">
       
         CT-38 — Dez Clientes Simultâneos
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ct-39-tamanho-do-pacote-de-telemetria" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CT-39 — Tamanho do Pacote de Telemetria
       
     </span>
   </a>
@@ -4808,54 +4816,54 @@
 </tr>
 </tbody>
 </table>
-<h3 id="ct-39-tamanho-do-pacote-de-telemetria">CT-39 — Tamanho do Pacote de Telemetria</h3>
+<p><strong>CT-39 — Tamanho do Pacote de Telemetria</strong></p>
 <table>
 <thead>
 <tr>
-<th>Atributo</th>
-<th>Descrição</th>
+<th style="text-align: left;">Atributo</th>
+<th style="text-align: left;">Descrição</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Objetivo</strong></td>
-<td>Verificar se o pacote de telemetria tem no máximo 512 bytes.</td>
+<td style="text-align: left;"><strong>Objetivo</strong></td>
+<td style="text-align: left;">Verificar se os pacotes da transmissão contínua respeitam o limite de 512 bytes. O pacote de finalização é exceção documentada (RNF-09) e não está sujeito ao limite.</td>
 </tr>
 <tr>
-<td><strong>Requisito(s) coberto(s)</strong></td>
-<td>RNF-09; RF-08 / US08; RF-09 / US09</td>
+<td style="text-align: left;"><strong>Requisito(s) coberto(s)</strong></td>
+<td style="text-align: left;">RNF-09; RF-08 / US08; RF-09 / US09</td>
 </tr>
 <tr>
-<td><strong>Técnica de teste</strong></td>
-<td>Análise de fronteira de tamanho</td>
+<td style="text-align: left;"><strong>Técnica de teste</strong></td>
+<td style="text-align: left;">Análise de fronteira de tamanho</td>
 </tr>
 <tr>
-<td><strong>Partições e fronteiras</strong></td>
-<td>Mínimo, típico, completo 16x16; 511, 512 e 513 bytes.</td>
+<td style="text-align: left;"><strong>Partições e fronteiras</strong></td>
+<td style="text-align: left;">Transmissão contínua: mínimo, típico e máximo; fronteiras em 511, 512 e 513 bytes. Pacote de finalização: registrado apenas para referência, fora da partição do limite. Escopo: labirintos 4x4 e 8x8.</td>
 </tr>
 <tr>
-<td><strong>Casos concretos</strong></td>
-<td>Pacote mínimo, pacote típico e pacote completo 16x16.</td>
+<td style="text-align: left;"><strong>Casos concretos</strong></td>
+<td style="text-align: left;">Pacote mínimo (<code>running</code>, 1º passo), típico (<code>running</code>, meio da corrida) e máximo da transmissão contínua nos labirintos 4x4 e 8x8; pacote de finalização completo (<code>path_traversed</code> + <code>known_walls</code>) registrado para referência.</td>
 </tr>
 <tr>
-<td><strong>Pré-condições</strong></td>
-<td>Serializador de telemetria disponível no firmware, simulador ou backend.</td>
+<td style="text-align: left;"><strong>Pré-condições</strong></td>
+<td style="text-align: left;"><code>scripts/fake_robot.py</code> disponível e funcional; serializador de telemetria acessível.</td>
 </tr>
 <tr>
-<td><strong>Procedimentos</strong></td>
-<td>1. Serializar pacote mínimo.<br>2. Serializar pacote típico.<br>3. Serializar pacote completo 16x16.<br>4. Medir tamanho em bytes.<br>5. Testar rejeição de pacote acima do limite.</td>
+<td style="text-align: left;"><strong>Procedimentos</strong></td>
+<td style="text-align: left;">1. Serializar pacote <code>running</code> mínimo e registrar tamanho. 2. Serializar pacote <code>running</code> típico e registrar tamanho. 3. Serializar pacote <code>running</code> máximo nos labirintos 4x4 e 8x8 e validar ≤ 512 bytes. 4. Serializar o pacote de finalização completo nos mesmos labirintos e registrar o tamanho sem aplicar o limite. 5. Verificar que pacotes contínuos acima de 512 bytes são rejeitados pelo backend.</td>
 </tr>
 <tr>
-<td><strong>Resultado Esperado</strong></td>
-<td>Pacotes válidos têm no máximo 512 bytes; pacote acima do limite é rejeitado.</td>
+<td style="text-align: left;"><strong>Resultado Esperado</strong></td>
+<td style="text-align: left;">Todos os pacotes com <code>race_status</code> diferente de <code>finished</code> têm no máximo 512 bytes. O pacote de finalização pode exceder esse limite sem rejeição. Pacotes contínuos acima do limite são rejeitados.</td>
 </tr>
 <tr>
-<td><strong>Reparo</strong></td>
-<td>Reduzir campos, compactar representação ou ajustar validação de tamanho.</td>
+<td style="text-align: left;"><strong>Reparo</strong></td>
+<td style="text-align: left;">Reduzir campos ou compactar representação — aplicável apenas aos pacotes da transmissão contínua.</td>
 </tr>
 <tr>
-<td><strong>Pós-Reparo</strong></td>
-<td>Reexecutar medição dos três pacotes e rejeição acima do limite.</td>
+<td style="text-align: left;"><strong>Pós-Reparo</strong></td>
+<td style="text-align: left;">Reexecutar os passos 3 e 5.</td>
 </tr>
 </tbody>
 </table>

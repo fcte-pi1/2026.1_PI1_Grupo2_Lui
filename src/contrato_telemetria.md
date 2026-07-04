@@ -37,14 +37,16 @@ Para garantir a fidelidade da visualização no dashboard, o fluxo de dados deve
 
 A persistência dos dados é **diferida**: os pacotes recebidos durante a corrida são mantidos **exclusivamente em memória** (buffer de sessão no backend) e **não são gravados no banco de dados** enquanto `race_status` for `running` ou `paused`.
 
-A gravação no banco de dados ocorre **uma única vez**, de forma atômica, quando o backend recebe um pacote com `race_status = "finished"` ou o evento `race_ended`. **O pacote de finalização deve obrigatoriamente incluir o `path_traversed` completo** com todas as coordenadas `{x, y, z}` percorridas desde o início da corrida — é a partir dele que o backend persiste o trajeto integral. Nesse momento, o backend consolida o buffer de sessão, calcula os dados derivados (tempo total, velocidade média, consumo de bateria) e persiste o registro completo da corrida.
+A gravação no banco de dados ocorre **uma única vez**, de forma atômica, quando o backend recebe um pacote com `race_status = "finished"` ou o evento `race_ended`. **O pacote de finalização deve obrigatoriamente incluir o `path_traversed` completo** com todas as coordenadas `{x, y, z}` percorridas desde o início da corrida, além do `known_walls` (mapa de paredes completo) — é a partir desses dois campos que o backend persiste o trajeto integral e o mapa da corrida. Nesse momento, o backend consolida o buffer de sessão, calcula os dados derivados (tempo total, velocidade média, consumo de bateria) e persiste o registro completo da corrida.
+
+> O limite de 512 bytes do RNF-09 aplica-se exclusivamente aos pacotes da transmissão contínua (seção 2.1). O pacote de finalização é uma exceção documentada: por ser enviado uma única vez, ao término da corrida, em rede local, pode incluir `path_traversed` e `known_walls` completos sem restrição de tamanho.
 
 Em caso de `race_status = "error"`, o buffer de sessão é descartado e **nenhum dado é persistido**.
 
 | Situação | Ação do Backend |
 | :--- | :--- |
 | `race_status = "running"` ou `"paused"` | Repassa ao dashboard via stream; armazena em buffer de memória. |
-| `race_status = "finished"` / evento `race_ended` | Persiste o registro completo no banco (exige `path_traversed` completo); limpa o buffer. |
+| `race_status = "finished"` / evento `race_ended` | Persiste o registro completo no banco (exige `path_traversed` e `known_walls` completos; pacote isento do limite de 512 B do RNF-09); limpa o buffer. |
 | `race_status = "error"` | Descarta o buffer; nenhuma escrita no banco. |
 
 ## 3. Eventos Especiais e Mensagens
@@ -151,7 +153,7 @@ Paredes do **perímetro** devem ser marcadas como `true` (`x=0` ⇒ `[3]=true`, 
 
 ## 7. Exemplo de Pacote de Finalização (Dispara Persistência)
 
-O pacote abaixo exemplifica a mensagem que encerra a corrida e aciona a gravação no banco de dados.
+O pacote abaixo exemplifica a mensagem que encerra a corrida e aciona a gravação no banco de dados. É a única mensagem do protocolo isenta do limite de 512 bytes do RNF-09 (decisão D9) — por isso traz o `path_traversed` completo e, opcionalmente, o `known_walls` (omitido aqui por brevidade; ver seção 6).
 
 ```json
 {
@@ -179,9 +181,9 @@ O pacote abaixo exemplifica a mensagem que encerra a corrida e aciona a gravaç�
     "x": 120.5,
     "y": 45.0,
     "z": 9.81
-  }
+  },
+  "known_walls": [ "...matriz completa de paredes," ]
 }
 ```
-
 
 

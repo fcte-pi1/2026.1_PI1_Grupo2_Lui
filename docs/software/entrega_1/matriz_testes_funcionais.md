@@ -623,20 +623,20 @@ Os testes não-funcionais explicitam critérios mensuráveis de desempenho, capa
 | **Reparo** | Corrigir broadcast, filas assíncronas ou limites de conexão. |
 | **Pós-Reparo** | Reexecutar teste com 10 clientes por 60 segundos. |
 
-### CT-39 — Tamanho do Pacote de Telemetria
+**CT-39 — Tamanho do Pacote de Telemetria**
 
 | Atributo | Descrição |
-|---|---|
-| **Objetivo** | Verificar se o pacote de telemetria tem no máximo 512 bytes. |
+| :--- | :--- |
+| **Objetivo** | Verificar se os pacotes da transmissão contínua respeitam o limite de 512 bytes. O pacote de finalização é exceção documentada (RNF-09) e não está sujeito ao limite. |
 | **Requisito(s) coberto(s)** | RNF-09; RF-08 / US08; RF-09 / US09 |
 | **Técnica de teste** | Análise de fronteira de tamanho |
-| **Partições e fronteiras** | Mínimo, típico, completo 16x16; 511, 512 e 513 bytes. |
-| **Casos concretos** | Pacote mínimo, pacote típico e pacote completo 16x16. |
-| **Pré-condições** | Serializador de telemetria disponível no firmware, simulador ou backend. |
-| **Procedimentos** | 1. Serializar pacote mínimo.<br>2. Serializar pacote típico.<br>3. Serializar pacote completo 16x16.<br>4. Medir tamanho em bytes.<br>5. Testar rejeição de pacote acima do limite. |
-| **Resultado Esperado** | Pacotes válidos têm no máximo 512 bytes; pacote acima do limite é rejeitado. |
-| **Reparo** | Reduzir campos, compactar representação ou ajustar validação de tamanho. |
-| **Pós-Reparo** | Reexecutar medição dos três pacotes e rejeição acima do limite. |
+| **Partições e fronteiras** | Transmissão contínua: mínimo, típico e máximo; fronteiras em 511, 512 e 513 bytes. Pacote de finalização: registrado apenas para referência, fora da partição do limite. Escopo: labirintos 4x4 e 8x8. |
+| **Casos concretos** | Pacote mínimo (`running`, 1º passo), típico (`running`, meio da corrida) e máximo da transmissão contínua nos labirintos 4x4 e 8x8; pacote de finalização completo (`path_traversed` + `known_walls`) registrado para referência. |
+| **Pré-condições** | `scripts/fake_robot.py` disponível e funcional; serializador de telemetria acessível. |
+| **Procedimentos** | 1. Serializar pacote `running` mínimo e registrar tamanho. 2. Serializar pacote `running` típico e registrar tamanho. 3. Serializar pacote `running` máximo nos labirintos 4x4 e 8x8 e validar ≤ 512 bytes. 4. Serializar o pacote de finalização completo nos mesmos labirintos e registrar o tamanho sem aplicar o limite. 5. Verificar que pacotes contínuos acima de 512 bytes são rejeitados pelo backend. |
+| **Resultado Esperado** | Todos os pacotes com `race_status` diferente de `finished` têm no máximo 512 bytes. O pacote de finalização pode exceder esse limite sem rejeição. Pacotes contínuos acima do limite são rejeitados. |
+| **Reparo** | Reduzir campos ou compactar representação — aplicável apenas aos pacotes da transmissão contínua. |
+| **Pós-Reparo** | Reexecutar os passos 3 e 5. |
 
 ### CT-40 — Integridade Somente-Leitura
 

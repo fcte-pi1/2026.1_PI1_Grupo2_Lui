@@ -91,6 +91,7 @@ nav:
       - ADR-001 Comunicação de Comandos (ESP32): software/comunicacao-comandos-esp32.md
       - Requisitos e Backlog:
           - Backlog do Produto: software/entrega_1/backlog_produto.md
+          - Requisitos Não-Funcionais: software/entrega_1/requisitos_nao_funcionais.md
       - Modelagem e Fluxos:
           - Diagrama de Atividades: software/entrega_1/diagrama_atividades.md
           - Casos de Uso: software/entrega_1/diagrama_casos_uso.md

@@ -112,6 +112,8 @@ O contexto mais exigente é a apresentação final, na qual professores avaliado
 
 Microcontroladores tipicamente utilizados em projetos Micromouse (como STM32 ou ESP32) possuem buffers de comunicação limitados. Pacotes menores reduzem também a latência de transmissão e o risco de fragmentação na rede. Os dados necessários por ciclo (posição, velocidade, nível de bateria e data_hora) podem ser representados em menos de 100 bytes com estrutura binária eficiente. O limite de 512 bytes é generoso o bastante para acomodar inclusive formatos textuais como JSON, mais convenientes para depuração durante o desenvolvimento.
 
+> O pacote de finalização trafega fora da cadência de 1 Hz e contém campos de tamanho variável dependentes do labirinto (`path_traversed` e `known_walls`); por isso é tratado como exceção. O limite de 512 bytes aplica-se exclusivamente aos pacotes da transmissão contínua.
+
 ## 4. Segurança
 
 ### RNF-10 — Integridade dos Dados de Corrida

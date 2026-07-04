@@ -9,98 +9,100 @@
 #include "bateria/bateria.h"
 #include "telemetria/telemetria.h"
 #include "movimento/movimento.h"
+#include "map_manager/map_manager.h"
 
-static constexpr int VEL_TESTE = 150;
+enum EstadoRobo {
+    LIGANDO,
+    VERIFICANDO,
+    EXPLORANDO,
+    CORRIDA,
+    FINALIZADO,
+    ERRO
+};
+
+EstadoRobo estado_atual = LIGANDO;
+unsigned long ultimo_tempo_erro = 0;
 
 void setup() {
-
     Serial.begin(115200);
     delay(2000);
 
     Serial.println("\n=======================================");
     Serial.println(" BOOT Micromouse");
     Serial.println("=======================================\n");
-
-    Serial.println("[BOOT 1/5] Inicializando Barramento I2C...");
-    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-    Wire.setClock(400000);
-    Serial.println("-> I2C pronto nos pinos SDA(21) e SCL(22) @ 400kHz.\n");
-    delay(200);
-
-    Serial.println("[BOOT 2/5] Inicializando sensor de distânca VL53L0X...");
-    configurarSensoresToF();
-    Serial.println("-> Sensor VL53L0X inicializado.\n");
-    delay(200);
-
-    Serial.println("[BOOT 3/5] Inicializando MPU-6500...");
-    configurarMPU();
-    Serial.println("-> MPU-6500 inicializado.\n");
-    delay(200);
-
-    Serial.println("[BOOT 4/5] Configurando encoders dos motores...");
-    encoders_init();
-    Serial.println("-> Encoders configurados nos pinos 32, 33 (motor esquerdo) e 34, 35 (motor direito).\n");
-    delay(200);
-
-    Serial.println("[BOOT 5/5] Configurando motores...");
-    motors_init();
-    Serial.println("-> PWM: 20 kHz, resolucao 8 bits.");
-    Serial.println("-> Motores inicializados em estado de parada.\n");
-    delay(2000);
-
-    Serial.println("\n=======================================");
-    Serial.println(" BOOT Completo ");
-    Serial.println("=======================================\n");
-
-    Serial.println("[TELEMETRIA] Inicializando link Bluetooth SPP...");
-    telemetry_init();
-    Serial.println("-> Telemetria configurada.\n");
-
-    // TESTE DE MESA CT-10: Teste do PID
-    Serial.println("[CT-10] Iniciando teste do PID...");
-    resetar_pid();
-    float erros_simulados[] = {-10.0f, 0.0f, 10.0f};
-    
-    for (int i = 0; i < 3; i++) {
-        float erro = erros_simulados[i];
-        float ajuste = calcular_pid(erro, 0.02f); // 20ms delta
-        Serial.print("Erro Simulado: ");
-        Serial.print(erro);
-        Serial.print(" => Ajuste PID: ");
-        Serial.println(ajuste);
-        
-        int vel_esq = VEL_TESTE + (int)ajuste;
-        int vel_dir = VEL_TESTE - (int)ajuste;
-        Serial.print("  Motores (Esq / Dir): ");
-        Serial.print(vel_esq);
-        Serial.print(" / ");
-        Serial.println(vel_dir);
-    }
-    Serial.println("[CT-10] Teste concluído.\n");
-
-    loop();
 }
 
 void loop() {
+    switch (estado_atual) {
+        case LIGANDO:
+            Serial.println("[ESTADO] LIGANDO...");
+            Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+            Wire.setClock(400000);
+            
+            encoders_init();
+            motors_init();
+            telemetry_init();
+            map_init();
+            
+            estado_atual = VERIFICANDO;
+            break;
+            
+        case VERIFICANDO:
+            Serial.println("[ESTADO] VERIFICANDO periféricos...");
+            if (!configurarMPU()) {
+                Serial.println("[ERRO] MPU falhou.");
+                estado_atual = ERRO;
+                break;
+            }
+            if (!configurarSensoresToF()) {
+                Serial.println("[ERRO] Sensores ToF falharam.");
+                estado_atual = ERRO;
+                break;
+            }
+            Serial.println("[INFO] Periféricos verificados com sucesso.");
+            Serial.println("[ESTADO] Entrando em EXPLORANDO...");
+            estado_atual = EXPLORANDO;
+            break;
+            
+        case EXPLORANDO:
+        {
+            atualizar_filtro_media();
+            atualizar_velocidade();
+            verificar_emergencia();
+            testar_sensores_paredes();
 
-    // Atualiza o filtro de média dos sensores de distância
-    atualizar_filtro_media();
+            float bat_v = ler_tensao_bateria();
+            float vel_mms = obter_velocidade_mm_s();
+            telemetry_loop(bat_v, vel_mms);
 
-    // Atualiza o cálculo de velocidade real a partir dos encoders
-    atualizar_velocidade();
+            static bool simulou_parede = false;
+            static unsigned long tempo_inicio_explorando = millis();
+            
+            if (!simulou_parede && (millis() - tempo_inicio_explorando > 5000)) {
+                Serial.println("\n>>> [MOCK] Simulando movimentação e detecção de parede para teste (CT-06/CT-13) <<<");
+                
+                map_update_robot_pos(0, MAZE_SIZE - 2, NORTE);
 
-    // Verifica freio de emergência
-    verificar_emergencia();
-
-    // Imprime mock do map_manager se houve mudança no estado das paredes
-    testar_sensores_paredes();
-
-    // Leitura real da bateria
-    float bat_v = ler_tensao_bateria();
-    float vel_mms = obter_velocidade_mm_s();
-
-    // Alimenta o sistema de telemetria periodicamente
-    telemetry_loop(bat_v, vel_mms);
+                map_set_wall(0, MAZE_SIZE - 2, NORTE, true);
+                
+                map_print();
+                simulou_parede = true;
+            }
+            break;
+        }
+        case CORRIDA:
+            break;
+            
+        case FINALIZADO:
+            break;
+            
+        case ERRO:
+            if (millis() - ultimo_tempo_erro > 2000) {
+                Serial.println("[ESTADO] ERRO: O sistema está travado por falha na inicialização.");
+                ultimo_tempo_erro = millis();
+            }
+            break;
+    }
 
     delay(20);
 }

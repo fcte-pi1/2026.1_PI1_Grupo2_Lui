@@ -14,7 +14,8 @@ VL53L0X sensorDir;
 #define ENDERECO_TOF_FRENTE 0x31
 #define ENDERECO_TOF_DIR    0x32
 
-void configurarSensoresToF() {
+bool configurarSensoresToF() {
+  bool sucesso = true;
 
   // Configurar os pinos XSHUT como saída
   pinMode(PIN_TOF1_XSHUT, OUTPUT);
@@ -33,6 +34,7 @@ void configurarSensoresToF() {
   sensorEsq.setTimeout(500);
   if (!sensorEsq.init()) {
     Serial.println("Falha ao iniciar o Sensor Esquerdo!");
+    sucesso = false;
   } else {
     sensorEsq.setAddress(ENDERECO_TOF_ESQ);
     sensorEsq.setMeasurementTimingBudget(20000); // Reduz o tempo de captura para 20ms
@@ -45,6 +47,7 @@ void configurarSensoresToF() {
   sensorFrente.setTimeout(500);
   if (!sensorFrente.init()) {
     Serial.println("Falha ao iniciar o Sensor Frontal!");
+    sucesso = false;
   } else {
     sensorFrente.setAddress(ENDERECO_TOF_FRENTE);
     sensorFrente.setMeasurementTimingBudget(20000); // Reduz o tempo de captura para 20ms
@@ -57,11 +60,14 @@ void configurarSensoresToF() {
   sensorDir.setTimeout(500);
   if (!sensorDir.init()) {
     Serial.println("Falha ao iniciar o Sensor Direito!");
+    sucesso = false;
   } else {
     sensorDir.setAddress(ENDERECO_TOF_DIR);
     sensorDir.setMeasurementTimingBudget(20000); // Reduz o tempo de captura para 20ms
     sensorDir.startContinuous(20); // Configura para modo de alta velocidade (leitura a cada 20ms)
   }
+
+  return sucesso;
 }
 
 ToFSensorReading lerTodosSensores() {

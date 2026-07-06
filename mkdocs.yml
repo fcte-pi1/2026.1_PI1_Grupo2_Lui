@@ -82,7 +82,11 @@ theme:
 # Estrutura de Navegação (Menu)
 nav:
   - Home: index.md
-  - Energia: energia/energia.md
+  - Energia:
+      - Memorial de Cálculo: energia/energia.md
+      - EAP: energia/eap_energia.md
+      - Benchmark: energia/benchmark_energia.md
+      - Verificação e Validação: energia/validacao_energia.md
   - Hardware:
       - EAP: hardware/hw_eap.md
   - Software:

@@ -3,10 +3,7 @@
 
 #include <Arduino.h>
 
-// ── ATENÇÃO: ajustar conforme datasheet do motor ──────
-// Verificar quantos pulsos a fase A gera por volta completa da roda.
-// Valor típico para motores N20: 7 a 20 PPR (antes do redutor).
-#define ENCODER_PPR  20  // TODO: confirmar na datasheet
+// PPR agora é configurado centralmente em movimento.h
 
 // ── Inicialização ─────────────────────────────────────
 void encoders_init();

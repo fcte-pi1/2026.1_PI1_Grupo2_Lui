@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 #define RODA_DIAMETRO_MM     32.0f
-#define ENCODER_PPR          20
+#define ENCODER_PPR          420
 #define CELULA_MM            180.0f
 #define DISTANCIA_EIXOS_MM   102.0f
 

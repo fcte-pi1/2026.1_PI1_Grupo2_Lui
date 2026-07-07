@@ -1,33 +1,40 @@
 // ==========================================
-// TESTE ISOLADO: 3 SENSORES TOF VL53L0X
+// TESTE ISOLADO: ENCODERS (CALIBRACAO MANUAL)
+// Motor DESLIGADO - empurre o carrinho a mao por uma distancia conhecida
+// (ex.: 1 metro) e leia a contagem de ticks de cada roda.
 // Com Bluetooth Serial (comandos via USB ou celular)
 // ==========================================
 #include <Arduino.h>
-#include <Wire.h>
-#include <VL53L0X.h>
 #include "BluetoothSerial.h"
 
-#define SDA_PIN 21
-#define SCL_PIN 22
+// Pinos dos Encoders (ver src/firmware/pins.h)
+#define ENC_ESQ_A 32
+#define ENC_ESQ_B 33
+#define ENC_DIR_A 18
+#define ENC_DIR_B 19
 
-// Pinos XSHUT dos Sensores TOF
-#define TOF1_XSHUT 4
-#define TOF2_XSHUT 16
-#define TOF3_XSHUT 17
+// Pinos da Ponte H DRV8833 (ver src/firmware/pins.h) - mantidos em LOW
+// neste teste para garantir que o motor fique parado (calibracao e manual).
+#define MOT1_IN1 14
+#define MOT1_IN2 27
+#define MOT2_IN1 26
+#define MOT2_IN2 25
 
-VL53L0X sensor1;
-VL53L0X sensor2;
-VL53L0X sensor3;
+#define RODA_DIAMETRO_MM 32.0f
+
 BluetoothSerial SerialBT;
 
-bool tof1Ok = false, tof2Ok = false, tof3Ok = false;
-bool leituraContinua = true;
-
-unsigned long tempoAnteriorTOF = 0;
-const long intervaloTOF = 500;
+volatile long contEsq = 0;
+volatile long contDir = 0;
+volatile int sentidoEsq = 0;
+volatile int sentidoDir = 0;
 
 String comandoSerial = "";
 String comandoBT = "";
+bool leituraContinua = false;
+
+unsigned long tempoAnterior = 0;
+const long intervaloLeitura = 300;
 
 // Saida simultanea Serial + Bluetooth
 void logMsg(String msg) {
@@ -35,39 +42,83 @@ void logMsg(String msg) {
   SerialBT.println(msg);
 }
 
-void scanI2C() {
-  logMsg("\n------ SCAN I2C ------");
-  bool encontrou = false;
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      char buf[32];
-      sprintf(buf, "Dispositivo em 0x%02X", addr);
-      logMsg(String(buf));
-      encontrou = true;
-    }
-  }
-  if (!encontrou) logMsg("Nenhum dispositivo encontrado.");
-  logMsg("----------------------");
+// Decodificacao em quadratura: dispara na borda da fase A e compara com a fase B.
+//   A == B -> frente (+1)
+//   A != B -> re     (-1)
+void IRAM_ATTR isrEncEsq() {
+  bool a = digitalRead(ENC_ESQ_A);
+  bool b = digitalRead(ENC_ESQ_B);
+  if (a == b) { contEsq++; sentidoEsq = 1; }
+  else        { contEsq--; sentidoEsq = -1; }
 }
 
-void lerSensores() {
-  char buf[80];
-  int d1 = tof1Ok ? sensor1.readRangeContinuousMillimeters() : -1;
-  int d2 = tof2Ok ? sensor2.readRangeContinuousMillimeters() : -1;
-  int d3 = tof3Ok ? sensor3.readRangeContinuousMillimeters() : -1;
-  sprintf(buf, "S1 (0x30): %4d mm | S2 (0x31): %4d mm | S3 (0x32): %4d mm", d1, d2, d3);
+void IRAM_ATTR isrEncDir() {
+  bool a = digitalRead(ENC_DIR_A);
+  bool b = digitalRead(ENC_DIR_B);
+  if (a == b) { contDir++; sentidoDir = 1; }
+  else        { contDir--; sentidoDir = -1; }
+}
+
+void lerEncoders() {
+  noInterrupts();
+  long esq = contEsq;
+  long dir = contDir;
+  interrupts();
+  char buf[100];
+  sprintf(buf, "ENC | Esq: %6ld ticks (sentido %d) | Dir: %6ld ticks (sentido %d)",
+          esq, sentidoEsq, dir, sentidoDir);
   logMsg(String(buf));
 }
 
+void zerarEncoders() {
+  noInterrupts();
+  contEsq = 0;
+  contDir = 0;
+  interrupts();
+  logMsg("Encoders zerados. Empurre o carrinho manualmente pela distancia combinada.");
+}
+
+// Apos ZERAR e empurrar o carrinho por uma distancia conhecida (padrao 1000 mm),
+// calcula quantos mm cada tick representa em cada roda.
+void calcularCalibracao(float distanciaMm) {
+  long esq, dir;
+  noInterrupts();
+  esq = contEsq;
+  dir = contDir;
+  interrupts();
+
+  if (esq == 0 || dir == 0) {
+    logMsg("ERRO: contagem zerada. Rode ZERAR, empurre o carrinho e so entao rode CAL.");
+    return;
+  }
+
+  float mmPorTickEsq = distanciaMm / (float)abs(esq);
+  float mmPorTickDir = distanciaMm / (float)abs(dir);
+  float pprEsq = (PI * RODA_DIAMETRO_MM) / mmPorTickEsq;
+  float pprDir = (PI * RODA_DIAMETRO_MM) / mmPorTickDir;
+
+  char buf[120];
+  logMsg("\n=== CALCULO DE CALIBRACAO ===");
+  sprintf(buf, "Distancia percorrida: %.1f mm", distanciaMm);
+  logMsg(String(buf));
+  sprintf(buf, "Esq -> %ld ticks | %.4f mm/tick | ~%.1f ticks/volta", esq, mmPorTickEsq, pprEsq);
+  logMsg(String(buf));
+  sprintf(buf, "Dir -> %ld ticks | %.4f mm/tick | ~%.1f ticks/volta", dir, mmPorTickDir, pprDir);
+  logMsg(String(buf));
+  logMsg("Anote estes valores (mm/tick ou ticks/volta) para ajustar ENCODER_PPR em movimento.h.");
+  logMsg("===============================\n");
+}
+
 void mostrarMenu() {
-  logMsg("\n======== MENU (SENSORES TOF) ========");
-  logMsg("START -> Liga leitura continua (a cada 500ms)");
-  logMsg("STOP  -> Para leitura continua");
-  logMsg("TOF   -> Faz 10 leituras rapidas");
-  logMsg("SCAN  -> Scan do barramento I2C");
-  logMsg("HELP  -> Mostra este menu");
-  logMsg("=====================================\n");
+  logMsg("\n======== MENU (CALIBRACAO DE ENCODERS) ========");
+  logMsg("ZERAR      -> Zera a contagem antes de empurrar o carrinho");
+  logMsg("LER        -> Mostra a contagem atual (Esq/Dir)");
+  logMsg("START      -> Liga leitura continua (a cada 300ms)");
+  logMsg("STOP       -> Para leitura continua");
+  logMsg("CAL [mm]   -> Calcula mm/tick a partir da distancia percorrida");
+  logMsg("              (padrao 1000mm se omitido, ex.: CAL 1000)");
+  logMsg("HELP       -> Mostra este menu");
+  logMsg("================================================\n");
 }
 
 void executarComando(String cmd) {
@@ -76,21 +127,24 @@ void executarComando(String cmd) {
   if (cmd.length() == 0) return;
   logMsg("Comando recebido: " + cmd);
 
-  if (cmd == "START") {
+  if (cmd == "ZERAR" || cmd == "RESET") {
+    zerarEncoders();
+  } else if (cmd == "LER" || cmd == "READ") {
+    lerEncoders();
+  } else if (cmd == "START") {
     leituraContinua = true;
     logMsg("Leitura continua LIGADA.");
   } else if (cmd == "STOP") {
     leituraContinua = false;
     logMsg("Leitura continua DESLIGADA.");
-  } else if (cmd == "TOF" || cmd == "SENSOR" || cmd == "SENSORES") {
-    logMsg("\n=== 10 LEITURAS ===");
-    for (int i = 0; i < 10; i++) {
-      lerSensores();
-      delay(150);
+  } else if (cmd == "CAL" || cmd.startsWith("CAL ")) {
+    float distancia = 1000.0f; // 1 metro por padrao
+    int espaco = cmd.indexOf(' ');
+    if (espaco != -1) {
+      float valor = cmd.substring(espaco + 1).toFloat();
+      if (valor > 0) distancia = valor;
     }
-    logMsg("=== FIM ===\n");
-  } else if (cmd == "SCAN") {
-    scanI2C();
+    calcularCalibracao(distancia);
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else {
@@ -102,67 +156,35 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n======================================");
-  Serial.println("  TESTE 3x VL53L0X + BLUETOOTH        ");
+  Serial.println("  TESTE/CALIBRACAO DE ENCODERS         ");
   Serial.println("======================================");
 
-  if (!SerialBT.begin("ESP32_Teste_TOF")) {
+  if (!SerialBT.begin("ESP32_Teste_Encoder")) {
     Serial.println("ERRO: Bluetooth nao inicializou.");
   } else {
-    Serial.println("Bluetooth Ativo! Procure por 'ESP32_Teste_TOF' no celular.");
+    Serial.println("Bluetooth Ativo! Procure por 'ESP32_Teste_Encoder' no celular.");
   }
 
-  Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(100000);
+  // Forca os pinos da Ponte H para LOW (motor parado). Sem isso os pinos ficam
+  // flutuando e o driver pode interpretar ruido como comando de giro.
+  pinMode(MOT1_IN1, OUTPUT);
+  pinMode(MOT1_IN2, OUTPUT);
+  pinMode(MOT2_IN1, OUTPUT);
+  pinMode(MOT2_IN2, OUTPUT);
+  digitalWrite(MOT1_IN1, LOW);
+  digitalWrite(MOT1_IN2, LOW);
+  digitalWrite(MOT2_IN1, LOW);
+  digitalWrite(MOT2_IN2, LOW);
 
-  // Desliga todos os TOFs para reset
-  pinMode(TOF1_XSHUT, OUTPUT);
-  pinMode(TOF2_XSHUT, OUTPUT);
-  pinMode(TOF3_XSHUT, OUTPUT);
-  digitalWrite(TOF1_XSHUT, LOW);
-  digitalWrite(TOF2_XSHUT, LOW);
-  digitalWrite(TOF3_XSHUT, LOW);
-  delay(100);
-  logMsg("\nTodos os sensores TOF em RESET.");
-  scanI2C();
+  pinMode(ENC_ESQ_A, INPUT_PULLUP);
+  pinMode(ENC_ESQ_B, INPUT_PULLUP);
+  pinMode(ENC_DIR_A, INPUT_PULLUP);
+  pinMode(ENC_DIR_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENC_ESQ_A), isrEncEsq, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_DIR_A), isrEncDir, CHANGE);
 
-  // Inicializacao sequencial (cada um ganha um endereco unico)
-  logMsg("\nLigando Sensor 1...");
-  digitalWrite(TOF1_XSHUT, HIGH);
-  delay(100);
-  if (sensor1.init()) {
-    sensor1.setAddress(0x30);
-    sensor1.startContinuous();
-    tof1Ok = true;
-    logMsg("Sensor 1 pronto no endereco 0x30.");
-  } else {
-    logMsg("ERRO: Sensor 1 nao inicializou.");
-  }
-
-  logMsg("\nLigando Sensor 2...");
-  digitalWrite(TOF2_XSHUT, HIGH);
-  delay(100);
-  if (sensor2.init()) {
-    sensor2.setAddress(0x31);
-    sensor2.startContinuous();
-    tof2Ok = true;
-    logMsg("Sensor 2 pronto no endereco 0x31.");
-  } else {
-    logMsg("ERRO: Sensor 2 nao inicializou.");
-  }
-
-  logMsg("\nLigando Sensor 3...");
-  digitalWrite(TOF3_XSHUT, HIGH);
-  delay(100);
-  if (sensor3.init()) {
-    sensor3.setAddress(0x32);
-    sensor3.startContinuous();
-    tof3Ok = true;
-    logMsg("Sensor 3 pronto no endereco 0x32.");
-  } else {
-    logMsg("ERRO: Sensor 3 nao inicializou.");
-  }
-
-  logMsg("\nInicializacao finalizada. Rodando...");
+  logMsg("\nEncoders inicializados. Motor permanece desligado neste teste.");
+  logMsg("Fluxo de calibracao: ZERAR -> empurrar o carrinho a mao -> LER (ou CAL).");
   mostrarMenu();
 }
 
@@ -190,8 +212,8 @@ void loop() {
 
   // Leitura periodica sem delay
   unsigned long tempoAtual = millis();
-  if (leituraContinua && tempoAtual - tempoAnteriorTOF >= intervaloTOF) {
-    tempoAnteriorTOF = tempoAtual;
-    lerSensores();
+  if (leituraContinua && tempoAtual - tempoAnterior >= intervaloLeitura) {
+    tempoAnterior = tempoAtual;
+    lerEncoders();
   }
 }

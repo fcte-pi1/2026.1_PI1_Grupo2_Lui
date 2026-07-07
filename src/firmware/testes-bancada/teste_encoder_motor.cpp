@@ -1,197 +1,70 @@
-// ==========================================
-// TESTE ISOLADO: 3 SENSORES TOF VL53L0X
-// Com Bluetooth Serial (comandos via USB ou celular)
-// ==========================================
 #include <Arduino.h>
-#include <Wire.h>
-#include <VL53L0X.h>
-#include "BluetoothSerial.h"
+#include "../encoder/encoder.h"
+#include "../motors/motors.h"
 
-#define SDA_PIN 21
-#define SCL_PIN 22
-
-// Pinos XSHUT dos Sensores TOF
-#define TOF1_XSHUT 4
-#define TOF2_XSHUT 16
-#define TOF3_XSHUT 17
-
-VL53L0X sensor1;
-VL53L0X sensor2;
-VL53L0X sensor3;
-BluetoothSerial SerialBT;
-
-bool tof1Ok = false, tof2Ok = false, tof3Ok = false;
-bool leituraContinua = true;
-
-unsigned long tempoAnteriorTOF = 0;
-const long intervaloTOF = 500;
-
-String comandoSerial = "";
-String comandoBT = "";
-
-// Saida simultanea Serial + Bluetooth
-void logMsg(String msg) {
-  Serial.println(msg);
-  SerialBT.println(msg);
-}
-
-void scanI2C() {
-  logMsg("\n------ SCAN I2C ------");
-  bool encontrou = false;
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      char buf[32];
-      sprintf(buf, "Dispositivo em 0x%02X", addr);
-      logMsg(String(buf));
-      encontrou = true;
-    }
-  }
-  if (!encontrou) logMsg("Nenhum dispositivo encontrado.");
-  logMsg("----------------------");
-}
-
-void lerSensores() {
-  char buf[80];
-  int d1 = tof1Ok ? sensor1.readRangeContinuousMillimeters() : -1;
-  int d2 = tof2Ok ? sensor2.readRangeContinuousMillimeters() : -1;
-  int d3 = tof3Ok ? sensor3.readRangeContinuousMillimeters() : -1;
-  sprintf(buf, "S1 (0x30): %4d mm | S2 (0x31): %4d mm | S3 (0x32): %4d mm", d1, d2, d3);
-  logMsg(String(buf));
-}
-
-void mostrarMenu() {
-  logMsg("\n======== MENU (SENSORES TOF) ========");
-  logMsg("START -> Liga leitura continua (a cada 500ms)");
-  logMsg("STOP  -> Para leitura continua");
-  logMsg("TOF   -> Faz 10 leituras rapidas");
-  logMsg("SCAN  -> Scan do barramento I2C");
-  logMsg("HELP  -> Mostra este menu");
-  logMsg("=====================================\n");
-}
-
-void executarComando(String cmd) {
-  cmd.trim();
-  cmd.toUpperCase();
-  if (cmd.length() == 0) return;
-  logMsg("Comando recebido: " + cmd);
-
-  if (cmd == "START") {
-    leituraContinua = true;
-    logMsg("Leitura continua LIGADA.");
-  } else if (cmd == "STOP") {
-    leituraContinua = false;
-    logMsg("Leitura continua DESLIGADA.");
-  } else if (cmd == "TOF" || cmd == "SENSOR" || cmd == "SENSORES") {
-    logMsg("\n=== 10 LEITURAS ===");
-    for (int i = 0; i < 10; i++) {
-      lerSensores();
-      delay(150);
-    }
-    logMsg("=== FIM ===\n");
-  } else if (cmd == "SCAN") {
-    scanI2C();
-  } else if (cmd == "HELP" || cmd == "?") {
-    mostrarMenu();
-  } else {
-    logMsg("Comando desconhecido. Digite HELP.");
-  }
-}
+unsigned long ultimo_tempo_print = 0;
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  Serial.println("\n======================================");
-  Serial.println("  TESTE 3x VL53L0X + BLUETOOTH        ");
-  Serial.println("======================================");
+    Serial.begin(115200);
+    delay(1000);
+    
+    Serial.println("\n=========================================");
+    Serial.println("   TESTE DE ENCODER E MOTORES INICIADO   ");
+    Serial.println("=========================================\n");
+    Serial.println("COMANDOS VIA SERIAL:");
+    Serial.println(" [R] - Resetar contagem dos encoders");
+    Serial.println(" [W] - Ligar ambos motores devagar (frente)");
+    Serial.println(" [S] - Parar todos os motores");
+    Serial.println(" [E] - Ligar SOMENTE motor esquerdo");
+    Serial.println(" [D] - Ligar SOMENTE motor direito");
+    Serial.println("-----------------------------------------\n");
+    Serial.println("Para calibrar o PPR: deixe os motores em [S] (parados),");
+    Serial.println("gire a roda exatamente 1 volta completa com a mão e");
+    Serial.println("veja a contagem no terminal!\n");
 
-  if (!SerialBT.begin("ESP32_Teste_TOF")) {
-    Serial.println("ERRO: Bluetooth nao inicializou.");
-  } else {
-    Serial.println("Bluetooth Ativo! Procure por 'ESP32_Teste_TOF' no celular.");
-  }
-
-  Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(100000);
-
-  // Desliga todos os TOFs para reset
-  pinMode(TOF1_XSHUT, OUTPUT);
-  pinMode(TOF2_XSHUT, OUTPUT);
-  pinMode(TOF3_XSHUT, OUTPUT);
-  digitalWrite(TOF1_XSHUT, LOW);
-  digitalWrite(TOF2_XSHUT, LOW);
-  digitalWrite(TOF3_XSHUT, LOW);
-  delay(100);
-  logMsg("\nTodos os sensores TOF em RESET.");
-  scanI2C();
-
-  // Inicializacao sequencial (cada um ganha um endereco unico)
-  logMsg("\nLigando Sensor 1...");
-  digitalWrite(TOF1_XSHUT, HIGH);
-  delay(100);
-  if (sensor1.init()) {
-    sensor1.setAddress(0x30);
-    sensor1.startContinuous();
-    tof1Ok = true;
-    logMsg("Sensor 1 pronto no endereco 0x30.");
-  } else {
-    logMsg("ERRO: Sensor 1 nao inicializou.");
-  }
-
-  logMsg("\nLigando Sensor 2...");
-  digitalWrite(TOF2_XSHUT, HIGH);
-  delay(100);
-  if (sensor2.init()) {
-    sensor2.setAddress(0x31);
-    sensor2.startContinuous();
-    tof2Ok = true;
-    logMsg("Sensor 2 pronto no endereco 0x31.");
-  } else {
-    logMsg("ERRO: Sensor 2 nao inicializou.");
-  }
-
-  logMsg("\nLigando Sensor 3...");
-  digitalWrite(TOF3_XSHUT, HIGH);
-  delay(100);
-  if (sensor3.init()) {
-    sensor3.setAddress(0x32);
-    sensor3.startContinuous();
-    tof3Ok = true;
-    logMsg("Sensor 3 pronto no endereco 0x32.");
-  } else {
-    logMsg("ERRO: Sensor 3 nao inicializou.");
-  }
-
-  logMsg("\nInicializacao finalizada. Rodando...");
-  mostrarMenu();
+    encoders_init();
+    motors_init();
 }
 
 void loop() {
-  // Comandos via USB
-  while (Serial.available()) {
-    char c = Serial.read();
-    if (c == '\n' || c == '\r') {
-      if (comandoSerial.length() > 0) executarComando(comandoSerial);
-      comandoSerial = "";
-    } else {
-      comandoSerial += c;
-    }
-  }
-  // Comandos via Bluetooth
-  while (SerialBT.available()) {
-    char c = SerialBT.read();
-    if (c == '\n' || c == '\r') {
-      if (comandoBT.length() > 0) executarComando(comandoBT);
-      comandoBT = "";
-    } else {
-      comandoBT += c;
-    }
-  }
+    // Leitura de Comandos pela Serial
+    if (Serial.available()) {
+        char c = Serial.read();
+        c = toupper(c);
 
-  // Leitura periodica sem delay
-  unsigned long tempoAtual = millis();
-  if (leituraContinua && tempoAtual - tempoAnteriorTOF >= intervaloTOF) {
-    tempoAnteriorTOF = tempoAtual;
-    lerSensores();
-  }
+        if (c == 'R') {
+            encoder_esquerdo_reset();
+            encoder_direito_reset();
+            Serial.println("=> Encoders resetados para 0!");
+        } 
+        else if (c == 'W') {
+            motor_esquerdo_set(100);
+            motor_direito_set(100);
+            Serial.println("=> Motores Frente (Velocidade 100)");
+        } 
+        else if (c == 'S') {
+            motors_stop_all();
+            Serial.println("=> Motores PARADOS");
+        }
+        else if (c == 'E') {
+            motor_esquerdo_set(100);
+            motor_direito_set(0);
+            Serial.println("=> Motor Esquerdo Girando");
+        }
+        else if (c == 'D') {
+            motor_esquerdo_set(0);
+            motor_direito_set(100);
+            Serial.println("=> Motor Direito Girando");
+        }
+    }
+
+    // A cada 300ms imprime o valor atual dos encoders
+    if (millis() - ultimo_tempo_print > 300) {
+        long cont_esq = encoder_esquerdo_get();
+        long cont_dir = encoder_direito_get();
+        
+        Serial.printf("[ENCODERS] Esquerdo: %ld \t Direito: %ld\n", cont_esq, cont_dir);
+        
+        ultimo_tempo_print = millis();
+    }
 }

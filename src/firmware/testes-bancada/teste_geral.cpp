@@ -7,7 +7,8 @@
 #include <VL53L0X.h>
 #include "BluetoothSerial.h"
 #include "../encoder/encoder.h"
-
+#include "../motors/motors.h"
+#include "../movimento/movimento.h"
 // --- Pinos MPU6500 & I2C ---
 #define SDA_PIN 21
 #define SCL_PIN 22
@@ -24,12 +25,7 @@
 #define TOF2_XSHUT 16
 #define TOF3_XSHUT 17
 
-// --- Pinos Ponte H ---
-#define M1_IN1 14
-#define M1_IN2 27
-#define M2_IN1 26
-#define M2_IN2 25
-
+// --- Variáveis Globais ---
 BluetoothSerial SerialBT;
 
 // --- Variáveis de Estado ---
@@ -104,19 +100,7 @@ void lerMPU() {
   }
 }
 
-// --- Motores Funções ---
-void pararMotores() {
-  digitalWrite(M1_IN1, LOW); digitalWrite(M1_IN2, LOW);
-  digitalWrite(M2_IN1, LOW); digitalWrite(M2_IN2, LOW);
-}
-void motoresFrente() {
-  digitalWrite(M1_IN1, HIGH); digitalWrite(M1_IN2, LOW);
-  digitalWrite(M2_IN1, HIGH); digitalWrite(M2_IN2, LOW);
-}
-void motoresTras() {
-  digitalWrite(M1_IN1, LOW); digitalWrite(M1_IN2, HIGH);
-  digitalWrite(M2_IN1, LOW); digitalWrite(M2_IN2, HIGH);
-}
+// --- Dummy motor functions removidas (usando motors.h e movimento.h agora) ---
 
 // --- Filtro TOF (Média Móvel Exponencial - EMA) ---
 float filtroS1 = 0;
@@ -218,9 +202,10 @@ void mostrarMenu() {
   logMsg("MPU_ON   -> Liga leitura do Giroscopio/Acelerometro");
   logMsg("MPU_OFF  -> Desliga MPU");
   logMsg("ENC      -> Mostra contagem atual dos Encoders");
-  logMsg("MOTOR_F  -> Liga Motores para Frente (2s)");
-  logMsg("MOTOR_T  -> Liga Motores para Tras (2s)");
-  logMsg("CALIBRAR -> CALIBRA MPU");
+  logMsg("MOV_F    -> Mover 1 Celula Frente (via Encoder)");
+  logMsg("MOV_T    -> Mover 1 Celula Tras (via Encoder)");
+  logMsg("GIR_E    -> Girar 90 graus Esquerda");
+  logMsg("GIR_D    -> Girar 90 graus Direita");
   logMsg("HELP     -> Mostra este menu");
   logMsg("===========================================\n");
 }
@@ -241,14 +226,24 @@ void executarComando(String cmd) {
     mpuAtivo = false;
   } else if (cmd == "MPU_OFF") {
     mpuAtivo = false;
+  } else if (cmd == "MOV_F") {
+    logMsg("Movendo 1 celula pra frente...");
+    mover_frente_celula();
+    logMsg("Terminou!");
+  } else if (cmd == "MOV_T") {
+    logMsg("Movendo 1 celula pra tras...");
+    mover_tras_celula();
+    logMsg("Terminou!");
+  } else if (cmd == "GIR_E") {
+    logMsg("Girando 90 graus esquerda...");
+    girar_esquerda_90();
+    logMsg("Terminou!");
+  } else if (cmd == "GIR_D") {
+    logMsg("Girando 90 graus direita...");
+    girar_direita_90();
+    logMsg("Terminou!");
   } else if (cmd == "ENC") {
     lerEncoders();
-  } else if (cmd == "MOTOR_F") {
-    motoresFrente(); delay(2000); pararMotores();
-    logMsg("Motores parados.");
-  } else if (cmd == "MOTOR_T") {
-    motoresTras(); delay(2000); pararMotores();
-    logMsg("Motores parados.");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else if (cmd == "CALIBRAR") {
@@ -271,10 +266,8 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // MPU aguenta, TOF tbm
 
-  // --- Setup Motores ---
-  pinMode(M1_IN1, OUTPUT); pinMode(M1_IN2, OUTPUT);
-  pinMode(M2_IN1, OUTPUT); pinMode(M2_IN2, OUTPUT);
-  pararMotores();
+  // --- Setup Motores (da biblioteca real) ---
+  motors_init();
 
   // --- Setup Encoders ---
   encoders_init();

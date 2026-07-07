@@ -40,11 +40,6 @@ unsigned long tempoAnteriorSensores = 0;
 bool mpuAtivo = false;
 volatile bool mpuDadosProntos = false;
 
-bool encAtivo = false;
-long lastEncEsq = 0;
-long lastEncDir = 0;
-unsigned long lastEncTime = 0;
-
 // --- Sensores TOF ---
 VL53L0X sensor1;
 VL53L0X sensor2;
@@ -78,7 +73,6 @@ long mpuOffsetGiroY = 412;
 long mpuOffsetGiroZ = -32;
 
 void lerMPU() {
-  // if (!mpuDadosProntos) return; // Removido para forçar a leitura ignorando o pino INT físico
   mpuDadosProntos = false;
 
   Wire.beginTransmission(MPU6500_ADDR);
@@ -135,7 +129,7 @@ void lerTOFs() {
   char buf[80];
   // 1. Lê a distância bruta e aplica o seu balanceamento (calibração de offset)
   int r1 = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
-  int r2 = tof2Ok ? sensor2.readRangeContinuousMillimeters() - 40 : -1;
+  int r2 = tof2Ok ? sensor2.readRangeContinuousMillimeters() - 45 : -1;
   int r3 = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
 
   // 2. Aplica o Filtro EMA
@@ -179,7 +173,6 @@ void calibrarMPU() {
       int16_t gx = (Wire.read() << 8) | Wire.read();
       int16_t gy = (Wire.read() << 8) | Wire.read();
       int16_t gz = (Wire.read() << 8) | Wire.read();
-
       sumAcelX += ax;
       sumAcelY += ay;
       sumAcelZ += az;
@@ -216,7 +209,6 @@ void calibrarMPU() {
   logMsg("===============================\n");
 }
 
-
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= TESTE GERAL MICROMOUSE =========");
@@ -225,12 +217,10 @@ void mostrarMenu() {
   logMsg("TOF_OFF  -> Desliga leitura dos sensores");
   logMsg("MPU_ON   -> Liga leitura do Giroscopio/Acelerometro");
   logMsg("MPU_OFF  -> Desliga MPU");
-  logMsg("CALIBRAR -> Faz a calibracao do MPU (1000 amostras)");
-  logMsg("ENC      -> Mostra contagem absoluta atual dos Encoders");
-  logMsg("ENC_ON   -> Liga leitura continua de VELOCIDADE (ticks/s)");
-  logMsg("ENC_OFF  -> Desliga leitura de VELOCIDADE");
+  logMsg("ENC      -> Mostra contagem atual dos Encoders");
   logMsg("MOTOR_F  -> Liga Motores para Frente (2s)");
   logMsg("MOTOR_T  -> Liga Motores para Tras (2s)");
+  logMsg("CALIBRAR -> CALIBRA MPU");
   logMsg("HELP     -> Mostra este menu");
   logMsg("===========================================\n");
 }
@@ -249,17 +239,10 @@ void executarComando(String cmd) {
     mpuAtivo = true;
   } else if (cmd == "MPU_OFF") {
     mpuAtivo = false;
-  } else if (cmd == "CALIBRAR") {
-    calibrarMPU();
+  } else if (cmd == "MPU_OFF") {
+    mpuAtivo = false;
   } else if (cmd == "ENC") {
     lerEncoders();
-  } else if (cmd == "ENC_ON") {
-    encAtivo = true;
-    lastEncEsq = encoder_esquerdo_get();
-    lastEncDir = encoder_direito_get();
-    lastEncTime = millis();
-  } else if (cmd == "ENC_OFF") {
-    encAtivo = false;
   } else if (cmd == "MOTOR_F") {
     motoresFrente(); delay(2000); pararMotores();
     logMsg("Motores parados.");
@@ -268,6 +251,8 @@ void executarComando(String cmd) {
     logMsg("Motores parados.");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
+  } else if (cmd == "CALIBRAR") {
+    calibrarMPU();
   } else {
     logMsg("Comando desconhecido. Digite HELP.");
   }
@@ -341,24 +326,6 @@ void loop() {
   if (leituraSensoresContinua && tempoAtual - tempoAnteriorSensores >= 500) {
     tempoAnteriorSensores = tempoAtual;
     lerTOFs();
-  }
-
-  if (encAtivo && tempoAtual - lastEncTime >= 500) {
-    long curEsq = encoder_esquerdo_get();
-    long curDir = encoder_direito_get();
-    
-    // Calcula a variação (ticks por segundo)
-    long deltaT = tempoAtual - lastEncTime;
-    long varEsq = (curEsq - lastEncEsq) * 1000 / deltaT;
-    long varDir = (curDir - lastEncDir) * 1000 / deltaT;
-    
-    lastEncEsq = curEsq;
-    lastEncDir = curDir;
-    lastEncTime = tempoAtual;
-
-    char buf[120];
-    sprintf(buf, "ENC VELOCIDADE | Esq: %ld ticks/s | Dir: %ld ticks/s", varEsq, varDir);
-    logMsg(String(buf));
   }
 
   if (mpuAtivo) {

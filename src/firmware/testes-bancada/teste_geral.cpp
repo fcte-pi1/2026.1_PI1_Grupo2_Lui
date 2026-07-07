@@ -36,6 +36,12 @@ unsigned long tempoAnteriorSensores = 0;
 bool mpuAtivo = false;
 volatile bool mpuDadosProntos = false;
 
+// --- Variaveis do Encoder ---
+bool encAtivo = false;
+long lastEncEsq = 0;
+long lastEncDir = 0;
+unsigned long lastEncTime = 0;
+
 // --- Sensores TOF ---
 VL53L0X sensor1;
 VL53L0X sensor2;
@@ -201,7 +207,9 @@ void mostrarMenu() {
   logMsg("TOF_OFF  -> Desliga leitura dos sensores");
   logMsg("MPU_ON   -> Liga leitura do Giroscopio/Acelerometro");
   logMsg("MPU_OFF  -> Desliga MPU");
-  logMsg("ENC      -> Mostra contagem atual dos Encoders");
+  logMsg("ENC_ON   -> Liga impressao de velocidade dos Encoders");
+  logMsg("ENC_OFF  -> Desliga impressao de velocidade");
+  logMsg("ENC_RST  -> Zera a contagem dos Encoders (Para calibracao)");
   logMsg("MOV_F    -> Mover 1 Celula Frente (via Encoder)");
   logMsg("MOV_T    -> Mover 1 Celula Tras (via Encoder)");
   logMsg("GIR_E    -> Girar 90 graus Esquerda");
@@ -244,6 +252,17 @@ void executarComando(String cmd) {
     logMsg("Terminou!");
   } else if (cmd == "ENC") {
     lerEncoders();
+  } else if (cmd == "ENC_ON") {
+    encAtivo = true;
+    lastEncEsq = encoder_esquerdo_get();
+    lastEncDir = encoder_direito_get();
+    lastEncTime = millis();
+  } else if (cmd == "ENC_OFF") {
+    encAtivo = false;
+  } else if (cmd == "ENC_RST") {
+    encoder_esquerdo_reset();
+    encoder_direito_reset();
+    logMsg("Encoders zerados com sucesso!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else if (cmd == "CALIBRAR") {
@@ -319,6 +338,24 @@ void loop() {
   if (leituraSensoresContinua && tempoAtual - tempoAnteriorSensores >= 500) {
     tempoAnteriorSensores = tempoAtual;
     lerTOFs();
+  }
+
+  if (encAtivo && tempoAtual - lastEncTime >= 500) {
+    long curEsq = encoder_esquerdo_get();
+    long curDir = encoder_direito_get();
+    
+    // Calcula a variação (ticks por segundo)
+    long deltaT = tempoAtual - lastEncTime;
+    long varEsq = (curEsq - lastEncEsq) * 1000 / deltaT;
+    long varDir = (curDir - lastEncDir) * 1000 / deltaT;
+    
+    lastEncEsq = curEsq;
+    lastEncDir = curDir;
+    lastEncTime = tempoAtual;
+
+    char buf[120];
+    sprintf(buf, "ENC VELOCIDADE | Esq: %ld ticks/s | Dir: %ld ticks/s", varEsq, varDir);
+    logMsg(String(buf));
   }
 
   if (mpuAtivo) {

@@ -69,6 +69,14 @@ void escreverReg(uint8_t reg, uint8_t valor) {
   Wire.endTransmission();
 }
 
+// --- Variáveis de Calibração MPU ---
+long mpuOffsetAcelX = -1304;
+long mpuOffsetAcelY = 8233;
+long mpuOffsetAcelZ = 882;
+long mpuOffsetGiroX = 736;
+long mpuOffsetGiroY = 413;
+long mpuOffsetGiroZ = -2589;
+
 void lerMPU() {
   // if (!mpuDadosProntos) return; // Removido para forçar a leitura ignorando o pino INT físico
   mpuDadosProntos = false;
@@ -79,16 +87,25 @@ void lerMPU() {
   Wire.requestFrom(MPU6500_ADDR, 14);
 
   if (Wire.available() >= 14) {
-    int16_t ax = (Wire.read() << 8) | Wire.read();
-    int16_t ay = (Wire.read() << 8) | Wire.read();
-    int16_t az = (Wire.read() << 8) | Wire.read();
+    int16_t axRaw = (Wire.read() << 8) | Wire.read();
+    int16_t ayRaw = (Wire.read() << 8) | Wire.read();
+    int16_t azRaw = (Wire.read() << 8) | Wire.read();
     int16_t tempRaw = (Wire.read() << 8) | Wire.read();
-    int16_t gx = (Wire.read() << 8) | Wire.read();
-    int16_t gy = (Wire.read() << 8) | Wire.read();
-    int16_t gz = (Wire.read() << 8) | Wire.read();
+    int16_t gxRaw = (Wire.read() << 8) | Wire.read();
+    int16_t gyRaw = (Wire.read() << 8) | Wire.read();
+    int16_t gzRaw = (Wire.read() << 8) | Wire.read();
+
+    // Aplica os offsets de calibração
+    float ax = (axRaw - mpuOffsetAcelX) / 16384.0; // Em forca G
+    float ay = (ayRaw - mpuOffsetAcelY) / 16384.0; // Em forca G
+    float az = (azRaw - mpuOffsetAcelZ) / 16384.0; // Em forca G
+
+    float gx = (gxRaw - mpuOffsetGiroX) / 131.0; // Em graus/segundo
+    float gy = (gyRaw - mpuOffsetGiroY) / 131.0; // Em graus/segundo
+    float gz = (gzRaw - mpuOffsetGiroZ) / 131.0; // Em graus/segundo
 
     char buf[120];
-    sprintf(buf, "MPU | ACEL X:%d Y:%d Z:%d | GIRO X:%d Y:%d Z:%d", ax, ay, az, gx, gy, gz);
+    sprintf(buf, "MPU | ACEL(G) X:%.2f Y:%.2f Z:%.2f | GIRO(deg/s) X:%.1f Y:%.1f Z:%.1f", ax, ay, az, gx, gy, gz);
     logMsg(String(buf));
   }
 }

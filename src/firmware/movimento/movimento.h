@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 #define RODA_DIAMETRO_MM     32.0f
-#define ENCODER_PPR          420
+#define ENCODER_PPR          140
 #define CELULA_MM            180.0f
 #define DISTANCIA_EIXOS_MM   102.0f
 
@@ -23,4 +23,4 @@ void mover_tras(int velocidade, unsigned long tempo_ms);
 void girar_esquerda(int velocidade, unsigned long tempo_ms);
 void girar_direita(int velocidade, unsigned long tempo_ms);
 
-#endif 
+#endif

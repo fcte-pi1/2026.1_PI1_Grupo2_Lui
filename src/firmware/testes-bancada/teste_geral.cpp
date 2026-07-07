@@ -70,12 +70,12 @@ void escreverReg(uint8_t reg, uint8_t valor) {
 }
 
 // --- Variáveis de Calibração MPU ---
-long mpuOffsetAcelX = -1304;
-long mpuOffsetAcelY = 8233;
-long mpuOffsetAcelZ = 882;
-long mpuOffsetGiroX = 736;
-long mpuOffsetGiroY = 413;
-long mpuOffsetGiroZ = -2589;
+long mpuOffsetAcelX = -1553;
+long mpuOffsetAcelY = -26;
+long mpuOffsetAcelZ = 852;
+long mpuOffsetGiroX = 740;
+long mpuOffsetGiroY = 412;
+long mpuOffsetGiroZ = -32;
 
 void lerMPU() {
   // if (!mpuDadosProntos) return; // Removido para forçar a leitura ignorando o pino INT físico

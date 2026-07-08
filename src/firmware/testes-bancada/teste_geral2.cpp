@@ -199,6 +199,34 @@ void calibrarMPU() {
   logMsg("===============================\n");
 }
 
+// --- Teste Distancia Parede ---
+#define DIST_MIN_PAREDE_MM 30  // 3cm
+#define TEMPO_GIRO_CORRECAO_MS 200
+
+void testeDistanciaParede() {
+  // Le os dois TOFs laterais (S1 = esquerdo, S3 = direito), com os mesmos offsets
+  int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
+  int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
+
+  char buf[80];
+  sprintf(buf, "DIST PAREDE | Esq: %d mm | Dir: %d mm", distEsq, distDir);
+  logMsg(String(buf));
+
+  if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
+    // Muito perto da parede esquerda -> gira pra direita pra se afastar
+    logMsg("Parede esquerda muito perto! Girando pra direita...");
+    girar_direita(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
+    logMsg("Corrigido!");
+  } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
+    // Muito perto da parede direita -> gira pra esquerda pra se afastar
+    logMsg("Parede direita muito perto! Girando pra esquerda...");
+    girar_esquerda(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
+    logMsg("Corrigido!");
+  } else {
+    logMsg("Distancia OK, nenhuma correcao necessaria.");
+  }
+}
+
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= TESTE GERAL MICROMOUSE =========");
@@ -214,6 +242,7 @@ void mostrarMenu() {
   logMsg("MOV_T    -> Mover 1 Celula Tras (via Encoder)");
   logMsg("GIR_E    -> Girar 90 graus Esquerda");
   logMsg("GIR_D    -> Girar 90 graus Direita");
+  logMsg("DIST_PAR -> Teste distancia parede");
   logMsg("HELP     -> Mostra este menu");
   logMsg("===========================================\n");
 }
@@ -263,6 +292,10 @@ void executarComando(String cmd) {
     encoder_esquerdo_reset();
     encoder_direito_reset();
     logMsg("Encoders zerados com sucesso!");
+  } else if (cmd == "DIST_PAR") {
+    logMsg("Teste distancia parede...");
+    testeDistanciaParede();
+    logMsg("Terminou!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else if (cmd == "CALIBRAR") {

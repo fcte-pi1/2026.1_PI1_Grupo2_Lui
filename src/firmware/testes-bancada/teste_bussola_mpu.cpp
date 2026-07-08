@@ -40,9 +40,10 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-// OBS: motorSet limita a -100..100. VEL_GIRO=105 satura em 100% no cruzeiro,
-// mas garante torque de sobra pra girar ate os graus (metade na frenagem = ~52%).
-#define VEL_GIRO 105 // % velocidade do giro (mais alto = mais torque/rapido)
+// Valor BRUTO igual ao movimento.h/teste_geral: VEL_GIRO = 120. O motorSet
+// satura em 100 na hora de aplicar, entao 120 = torque cheio no cruzeiro e
+// ~60 (120/2) na frenagem. Ajustavel em runtime pelo comando VEL.
+#define VEL_GIRO_PADRAO 120 // valor bruto da velocidade do giro (igual teste_geral)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -54,8 +55,16 @@
 // --- Parametros do giro (mesma logica do movimento.cpp) ---
 #define PASSO_GIRO_GRAUS      90.0f  // cada GIR_D/GIR_E soma/subtrai isso no alvo
 #define ZONA_FRENAGEM_GRAUS   20.0f  // ultimos X graus: reduz a velocidade a metade
-#define MARGEM_PARADA_GRAUS    2.0f  // para com esta margem: a inercia completa
+#define MARGEM_PARADA_GRAUS    2.0f  // dentro desta margem consideramos "no alvo"
 #define TIMEOUT_GIRO_MS       4000   // seguranca
+
+// --- Correcao de overshoot (malha fechada apos a freada) ---
+// Depois do giro rapido, o embalo (inercia) joga o robo alguns graus alem do
+// alvo. Estes parametros controlam o ajuste fino que traz o rumo de volta.
+#define VEL_CORRECAO_GIRO       60   // velocidade BRUTA (baixa) do ajuste fino
+#define ASSENTAMENTO_MS        150   // tempo parado p/ a inercia terminar antes de medir
+#define PULSO_CORRECAO_MS       80   // duracao de cada pulso de correcao
+#define MAX_PULSOS_CORRECAO      8   // seguranca: no. maximo de pulsos
 
 // --- Variaveis Globais ---
 BluetoothSerial SerialBT;
@@ -66,6 +75,7 @@ String comandoSerial = "";
 float offsetGiroZ_dps = 0.0f;          // bias do gyro em graus/s
 float rumo_deg = 0.0f;                  // heading atual, normalizado 0-360
 float alvoRumo_deg = 0.0f;              // alvo ACUMULADO do giro (grade de 90), 0-360
+int   velGiro = VEL_GIRO_PADRAO;        // velocidade do giro (%), ajustavel via VEL
 unsigned long ultimaAtualizacao_us = 0;
 bool bussolaStreaming = false;          // modo BUSSOLA ligado?
 
@@ -219,6 +229,26 @@ float faltaParaAlvo(float alvo, bool paraDireita) {
   else             return normalizar360(alvo - rumo_deg);
 }
 
+// --- Erro SINALIZADO ate o alvo, na faixa (-180, 180] --------------------
+// erro > 0: falta AUMENTAR o rumo (girar pra ESQUERDA nesta placa).
+// erro < 0: passou do ponto, precisa DIMINUIR o rumo (girar pra DIREITA).
+// Usado no ajuste fino: nao depende do sentido do giro original, so da posicao.
+float erroParaAlvo(float alvo) {
+  float e = normalizar360(alvo - rumo_deg);
+  if (e > 180.0f) e -= 360.0f;
+  return e;
+}
+
+// --- Espera a inercia terminar (robo assentar) mantendo o rumo atualizado --
+void assentarInercia(unsigned long ms) {
+  motoresParar();
+  unsigned long t0 = millis();
+  while (millis() - t0 < ms) {
+    atualizarBussola();
+    delay(2);
+  }
+}
+
 // --- Gira ate a bussola bater no ALVO ABSOLUTO acumulado (alvoRumo_deg) -----
 // Mesma logica do girar_com_giroscopio (movimento.cpp): liga o motor na
 // velocidade cheia (VEL_GIRO) e reduz pela metade na zona de frenagem. So que
@@ -228,8 +258,8 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   int sinal_esq = paraDireita ? +1 : -1;   // mesmos sentidos do movimento.cpp
   int sinal_dir = paraDireita ? -1 : +1;
 
-  motorEsquerdoSet(sinal_esq * VEL_GIRO);
-  motorDireitoSet(sinal_dir * VEL_GIRO);
+  motorEsquerdoSet(sinal_esq * velGiro);
+  motorDireitoSet(sinal_dir * velGiro);
 
   unsigned long inicio = millis();
   bool freando = false;
@@ -247,15 +277,44 @@ void girarParaAlvo(float alvo, bool paraDireita) {
     // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
     if (!freando && falta <= ZONA_FRENAGEM_GRAUS) {
       freando = true;
-      motorEsquerdoSet(sinal_esq * (VEL_GIRO / 2));
-      motorDireitoSet(sinal_dir * (VEL_GIRO / 2));
+      motorEsquerdoSet(sinal_esq * (velGiro / 2));
+      motorDireitoSet(sinal_dir * (velGiro / 2));
     }
     delay(2);
   }
   motoresParar();
 
+  // --- Fase 2: correcao de overshoot (malha fechada) ------------------------
+  // A freada acima deixa a inercia "completar o resto", mas em velocidade alta
+  // esse resto passa MUITO do alvo. Aqui deixamos assentar, medimos o erro real
+  // pela bussola e corrigimos em pulsos curtos e lentos ate cair na margem.
+  for (int pulso = 0; pulso < MAX_PULSOS_CORRECAO; pulso++) {
+    assentarInercia(ASSENTAMENTO_MS);       // espera parar de vez e atualiza o rumo
+
+    float erro = erroParaAlvo(alvo);
+    if (fabsf(erro) <= MARGEM_PARADA_GRAUS) break;  // ja esta no alvo
+
+    // Gira no sentido que REDUZ o erro (independe do sentido do giro original)
+    bool corrigirEsq = (erro > 0.0f);       // erro>0 -> aumentar rumo -> esquerda
+    int se = corrigirEsq ? -1 : +1;
+    int sd = corrigirEsq ? +1 : -1;
+    motorEsquerdoSet(se * VEL_CORRECAO_GIRO);
+    motorDireitoSet(sd * VEL_CORRECAO_GIRO);
+
+    // Pulso curto: corta assim que entrar na margem pra nao passar de novo
+    unsigned long tPulso = millis();
+    while (millis() - tPulso < PULSO_CORRECAO_MS) {
+      atualizarBussola();
+      if (fabsf(erroParaAlvo(alvo)) <= MARGEM_PARADA_GRAUS) break;
+      delay(2);
+    }
+    motoresParar();
+  }
+  assentarInercia(ASSENTAMENTO_MS);         // assenta e mede o resultado final
+
   char buf[80];
-  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f", alvo, rumo_deg);
+  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f | Erro: %.1f",
+          alvo, rumo_deg, erroParaAlvo(alvo));
   logMsg(String(buf));
 }
 
@@ -277,6 +336,8 @@ void mostrarMenu() {
   logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
   logMsg("GIR_D    -> Gira 90 graus pra Direita (mede pela bussola)");
   logMsg("GIR_E    -> Gira 90 graus pra Esquerda (mede pela bussola)");
+  logMsg("VEL n    -> Ajusta a velocidade do giro (%). Ex.: VEL 80");
+  logMsg("VEL      -> Mostra a velocidade do giro atual");
   logMsg("BUS_ON   -> Liga o streaming continuo do rumo (200ms)");
   logMsg("BUS_OFF  -> Desliga o streaming continuo do rumo");
   logMsg("CALIBRAR -> Recalibra o offset do gyro (robo parado)");
@@ -301,6 +362,18 @@ void executarComando(String cmd) {
   } else if (cmd == "GIR_E") {
     logMsg("Girando 90 graus pra ESQUERDA...");
     girarEsquerda90();
+  } else if (cmd == "VEL" || cmd.startsWith("VEL ")) {
+    char buf[48];
+    if (cmd == "VEL") {
+      // sem argumento: so mostra a velocidade atual
+      sprintf(buf, "Velocidade do giro: %d%%", velGiro);
+      logMsg(String(buf));
+    } else {
+      int v = cmd.substring(4).toInt();          // texto depois de "VEL "
+      velGiro = constrain(v, 1, 120);            // valor bruto (motorSet satura em 100)
+      sprintf(buf, "Velocidade do giro ajustada para %d%%", velGiro);
+      logMsg(String(buf));
+    }
   } else if (cmd == "BUS_ON") {
     bussolaStreaming = true;
     logMsg("Streaming da bussola LIGADO.");

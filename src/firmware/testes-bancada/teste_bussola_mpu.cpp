@@ -40,7 +40,10 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-#define VEL_GIRO 120 // mesma constante do movimento.h
+// OBS: motorSet limita a -100..100, entao valores acima de 100 = velocidade
+// maxima. Baixo aqui pra deixar o giro mais lento/controlado (ajuste a gosto).
+#define VEL_GIRO     50 // % velocidade de cruzeiro do giro
+#define VEL_MIN_GIRO 20 // % piso: menos que isso o motor nao vence o atrito
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -49,9 +52,10 @@
 // Intervalo entre atualizacoes de rumo no modo BUSSOLA (streaming)
 #define BUSSOLA_PERIODO_MS 200
 
-// --- Parametros do giro (mesma logica do movimento.cpp) ---
+// --- Parametros do giro (perfil trapezoidal de velocidade) ---
 #define ANGULO_GIRO_90_GRAUS  90.0f  // alvo do giro (graus, relativo)
-#define ZONA_FRENAGEM_GRAUS   20.0f  // ultimos X graus: reduz velocidade a metade
+#define RAMPA_ACEL_GRAUS      15.0f  // primeiros X graus: acelera VEL_MIN -> VEL_GIRO
+#define RAMPA_FREIO_GRAUS     30.0f  // ultimos X graus: desacelera VEL_GIRO -> VEL_MIN
 #define TIMEOUT_GIRO_MS       4000   // seguranca
 
 // --- Variaveis Globais ---
@@ -206,21 +210,41 @@ void mostrarRumo() {
   logMsg(String(buf));
 }
 
+// --- Perfil trapezoidal: velocidade em funcao de quanto ja girou/falta -----
+// Acelera suave no comeco (rampa de subida), mantem cruzeiro no meio e
+// desacelera proporcional ao que falta (rampa de descida), sempre com um piso
+// (VEL_MIN_GIRO) pra nao travar por atrito. Isso compensa a inercia melhor
+// que o degrau simples: os angulos entram/saem de forma suave.
+int velocidadePerfil(float feito_graus, float falta_graus) {
+  float v = (float)VEL_GIRO;
+
+  // Rampa de subida: nos primeiros RAMPA_ACEL_GRAUS
+  if (feito_graus < RAMPA_ACEL_GRAUS) {
+    float sub = VEL_MIN_GIRO + (VEL_GIRO - VEL_MIN_GIRO) * (feito_graus / RAMPA_ACEL_GRAUS);
+    if (sub < v) v = sub;
+  }
+  // Rampa de descida: nos ultimos RAMPA_FREIO_GRAUS
+  if (falta_graus < RAMPA_FREIO_GRAUS) {
+    float desc = VEL_MIN_GIRO + (VEL_GIRO - VEL_MIN_GIRO) * (falta_graus / RAMPA_FREIO_GRAUS);
+    if (desc < v) v = desc;
+  }
+
+  if (v < VEL_MIN_GIRO) v = VEL_MIN_GIRO; // nunca abaixo do piso
+  return (int)v;
+}
+
 // --- Gira no proprio eixo ate a bussola acusar o angulo alvo ---------------
-// Mesma logica do girar_com_giroscopio (movimento.cpp): zera, gira, mede o
-// angulo relativo e freia nos ultimos graus. So que aqui o angulo vem da
-// BUSSOLA (rumo_deg): acumulamos a variacao do rumo a cada passo, desfazendo
-// o salto 0<->360, pra ter o quanto o robo girou desde o inicio da manobra.
-void girarComBussola(int velocidade_esq, int velocidade_dir, float alvo_graus) {
+// Base: girar_com_giroscopio (movimento.cpp), mas o angulo vem da BUSSOLA
+// (rumo_deg): acumulamos a variacao do rumo a cada passo, desfazendo o salto
+// 0<->360, pra ter o quanto o robo girou desde o inicio da manobra. A
+// velocidade e recalculada a cada iteracao pelo perfil trapezoidal.
+// sinal_esq/sinal_dir definem o sentido de cada motor (+1 ou -1).
+void girarComBussola(int sinal_esq, int sinal_dir, float alvo_graus) {
   atualizarBussola();               // referencia de rumo antes de girar
   float rumoAnterior = rumo_deg;
   float giradoTotal = 0.0f;         // angulo relativo acumulado (equivale ao mpu_get_angulo)
 
-  motorEsquerdoSet(velocidade_esq);
-  motorDireitoSet(velocidade_dir);
-
   unsigned long inicio = millis();
-  bool freando = false;
 
   while (true) {
     atualizarBussola();
@@ -233,15 +257,15 @@ void girarComBussola(int velocidade_esq, int velocidade_dir, float alvo_graus) {
     rumoAnterior = rumo_deg;
 
     float atual_graus = fabsf(giradoTotal);
-    if (atual_graus >= alvo_graus) break;
+    float falta_graus = alvo_graus - atual_graus;
+    if (falta_graus <= 0.0f) break;
     if (millis() - inicio > TIMEOUT_GIRO_MS) break;
 
-    // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
-    if (!freando && atual_graus >= alvo_graus - ZONA_FRENAGEM_GRAUS) {
-      freando = true;
-      motorEsquerdoSet(velocidade_esq / 2);
-      motorDireitoSet(velocidade_dir / 2);
-    }
+    // Velocidade suave (trapezoidal) recalculada a cada passo
+    int vel = velocidadePerfil(atual_graus, falta_graus);
+    motorEsquerdoSet(sinal_esq * vel);
+    motorDireitoSet(sinal_dir * vel);
+
     delay(2);
   }
   motoresParar();
@@ -253,8 +277,8 @@ void girarComBussola(int velocidade_esq, int velocidade_dir, float alvo_graus) {
 }
 
 // Mesmos sentidos do movimento.cpp
-void girarDireita90()  { girarComBussola(VEL_GIRO, -VEL_GIRO, ANGULO_GIRO_90_GRAUS); }
-void girarEsquerda90() { girarComBussola(-VEL_GIRO, VEL_GIRO, ANGULO_GIRO_90_GRAUS); }
+void girarDireita90()  { girarComBussola(+1, -1, ANGULO_GIRO_90_GRAUS); }
+void girarEsquerda90() { girarComBussola(-1, +1, ANGULO_GIRO_90_GRAUS); }
 
 // --- Menu ---
 void mostrarMenu() {

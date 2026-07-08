@@ -55,8 +55,16 @@
 // --- Parametros do giro (mesma logica do movimento.cpp) ---
 #define PASSO_GIRO_GRAUS      90.0f  // cada GIR_D/GIR_E soma/subtrai isso no alvo
 #define ZONA_FRENAGEM_GRAUS   20.0f  // ultimos X graus: reduz a velocidade a metade
-#define MARGEM_PARADA_GRAUS    2.0f  // para com esta margem: a inercia completa
+#define MARGEM_PARADA_GRAUS    2.0f  // dentro desta margem consideramos "no alvo"
 #define TIMEOUT_GIRO_MS       4000   // seguranca
+
+// --- Correcao de overshoot (malha fechada apos a freada) ---
+// Depois do giro rapido, o embalo (inercia) joga o robo alguns graus alem do
+// alvo. Estes parametros controlam o ajuste fino que traz o rumo de volta.
+#define VEL_CORRECAO_GIRO       60   // velocidade BRUTA (baixa) do ajuste fino
+#define ASSENTAMENTO_MS        150   // tempo parado p/ a inercia terminar antes de medir
+#define PULSO_CORRECAO_MS       80   // duracao de cada pulso de correcao
+#define MAX_PULSOS_CORRECAO      8   // seguranca: no. maximo de pulsos
 
 // --- Variaveis Globais ---
 BluetoothSerial SerialBT;
@@ -221,6 +229,26 @@ float faltaParaAlvo(float alvo, bool paraDireita) {
   else             return normalizar360(alvo - rumo_deg);
 }
 
+// --- Erro SINALIZADO ate o alvo, na faixa (-180, 180] --------------------
+// erro > 0: falta AUMENTAR o rumo (girar pra ESQUERDA nesta placa).
+// erro < 0: passou do ponto, precisa DIMINUIR o rumo (girar pra DIREITA).
+// Usado no ajuste fino: nao depende do sentido do giro original, so da posicao.
+float erroParaAlvo(float alvo) {
+  float e = normalizar360(alvo - rumo_deg);
+  if (e > 180.0f) e -= 360.0f;
+  return e;
+}
+
+// --- Espera a inercia terminar (robo assentar) mantendo o rumo atualizado --
+void assentarInercia(unsigned long ms) {
+  motoresParar();
+  unsigned long t0 = millis();
+  while (millis() - t0 < ms) {
+    atualizarBussola();
+    delay(2);
+  }
+}
+
 // --- Gira ate a bussola bater no ALVO ABSOLUTO acumulado (alvoRumo_deg) -----
 // Mesma logica do girar_com_giroscopio (movimento.cpp): liga o motor na
 // velocidade cheia (VEL_GIRO) e reduz pela metade na zona de frenagem. So que
@@ -256,8 +284,37 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   }
   motoresParar();
 
+  // --- Fase 2: correcao de overshoot (malha fechada) ------------------------
+  // A freada acima deixa a inercia "completar o resto", mas em velocidade alta
+  // esse resto passa MUITO do alvo. Aqui deixamos assentar, medimos o erro real
+  // pela bussola e corrigimos em pulsos curtos e lentos ate cair na margem.
+  for (int pulso = 0; pulso < MAX_PULSOS_CORRECAO; pulso++) {
+    assentarInercia(ASSENTAMENTO_MS);       // espera parar de vez e atualiza o rumo
+
+    float erro = erroParaAlvo(alvo);
+    if (fabsf(erro) <= MARGEM_PARADA_GRAUS) break;  // ja esta no alvo
+
+    // Gira no sentido que REDUZ o erro (independe do sentido do giro original)
+    bool corrigirEsq = (erro > 0.0f);       // erro>0 -> aumentar rumo -> esquerda
+    int se = corrigirEsq ? -1 : +1;
+    int sd = corrigirEsq ? +1 : -1;
+    motorEsquerdoSet(se * VEL_CORRECAO_GIRO);
+    motorDireitoSet(sd * VEL_CORRECAO_GIRO);
+
+    // Pulso curto: corta assim que entrar na margem pra nao passar de novo
+    unsigned long tPulso = millis();
+    while (millis() - tPulso < PULSO_CORRECAO_MS) {
+      atualizarBussola();
+      if (fabsf(erroParaAlvo(alvo)) <= MARGEM_PARADA_GRAUS) break;
+      delay(2);
+    }
+    motoresParar();
+  }
+  assentarInercia(ASSENTAMENTO_MS);         // assenta e mede o resultado final
+
   char buf[80];
-  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f", alvo, rumo_deg);
+  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f | Erro: %.1f",
+          alvo, rumo_deg, erroParaAlvo(alvo));
   logMsg(String(buf));
 }
 

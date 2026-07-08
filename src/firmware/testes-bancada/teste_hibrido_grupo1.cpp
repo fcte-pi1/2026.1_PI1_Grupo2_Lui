@@ -27,6 +27,17 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
+// --- Pinos Encoders ---
+#define PIN_ENC1_A 32
+#define PIN_ENC1_B 33
+#define PIN_ENC2_A 18
+#define PIN_ENC2_B 19
+
+// --- Constantes de Odometria ---
+#define RODA_DIAMETRO_MM     32.0f
+#define ENCODER_PPR          140
+#define CELULA_MM            180.0f
+
 // --- Globais ---
 BluetoothSerial SerialBT;
 
@@ -94,6 +105,50 @@ void mpu_init() {
   calibrarOffsetGiro();
   ultimaAtualizacao_us = micros();
   anguloAcumulado_deg = 0.0f;
+}
+
+// =========================================================================
+// IMPLEMENTAÇÃO DE HARDWARE (ENCODERS)
+// =========================================================================
+
+static volatile long enc1_count = 0;
+static volatile long enc2_count = 0;
+
+static void IRAM_ATTR isr_enc1_a() {
+    bool a = digitalRead(PIN_ENC1_A);
+    bool b = digitalRead(PIN_ENC1_B);
+    if (a == b) { enc1_count++; } else { enc1_count--; }
+}
+
+static void IRAM_ATTR isr_enc2_a() {
+    bool a = digitalRead(PIN_ENC2_A);
+    bool b = digitalRead(PIN_ENC2_B);
+    if (a == b) { enc2_count++; } else { enc2_count--; }
+}
+
+void encoders_init() {
+    pinMode(PIN_ENC1_A, INPUT_PULLUP);
+    pinMode(PIN_ENC1_B, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC1_A), isr_enc1_a, CHANGE);
+
+    pinMode(PIN_ENC2_A, INPUT);
+    pinMode(PIN_ENC2_B, INPUT);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC2_A), isr_enc2_a, CHANGE);
+}
+
+long get_encoder_media() {
+    noInterrupts();
+    long e1 = enc1_count;
+    long e2 = enc2_count;
+    interrupts();
+    return (e1 + e2) / 2;
+}
+
+void reset_encoders() {
+    noInterrupts();
+    enc1_count = 0;
+    enc2_count = 0;
+    interrupts();
 }
 
 void motores_init() {
@@ -202,18 +257,34 @@ void girar(float graus_alvo) {
     }
 }
 
-void andar_reto(int velocidade_base, unsigned long tempo_ms) {
-    SerialBT.printf("Andando reto (vel: %d, tempo: %lu ms)...\n", velocidade_base, tempo_ms);
+void andar_distancia_mm(int velocidade_base, float distancia_mm) {
+    SerialBT.printf("Andando %.1f mm (vel: %d)...\n", distancia_mm, velocidade_base);
     
+    reset_encoders();
     float yaw_alvo = mpu_get_yaw();
     
+    // Calcula alvo em pulsos
+    float circunferencia = RODA_DIAMETRO_MM * 3.14159f;
+    float pulsos_por_mm = ENCODER_PPR / circunferencia;
+    long pulsos_alvo = abs(distancia_mm * pulsos_por_mm);
+    
     unsigned long inicio = millis();
-    while (millis() - inicio < tempo_ms) {
+    while (true) {
+        long pulsos_atuais = abs(get_encoder_media());
+        if (pulsos_atuais >= pulsos_alvo) {
+            break;
+        }
+        
+        // Timeout de seguranca (5 seg)
+        if (millis() - inicio > 5000) {
+            SerialBT.println("Timeout no movimento!");
+            break;
+        }
+
         mpu_update();
         float yaw_atual = mpu_get_yaw();
         float erro = yaw_alvo - yaw_atual;
         
-        // P proporcional simples para manter reta
         float correcao = kp_reta * erro;
         
         int vel_esq = velocidade_base - correcao;
@@ -230,9 +301,27 @@ void andar_reto(int velocidade_base, unsigned long tempo_ms) {
     SerialBT.println("Movimento concluido!");
 }
 
+void navAndarUmaCelula(bool re = false) {
+    int vel = re ? VEL_BASE_RE : VEL_BASE_FRENTE;
+    andar_distancia_mm(vel, CELULA_MM);
+}
+
 // =========================================================================
 // SETUP E LOOP PRINCIPAL
 // =========================================================================
+
+void mostrarMenu() {
+    SerialBT.println("=========================================");
+    SerialBT.println("SISTEMA HIBRIDO PRONTO (Odometria + MPU)");
+    SerialBT.println("Comandos Bluetooth:");
+    SerialBT.println(" 'w' - Andar frente (1 celula - 180mm)");
+    SerialBT.println(" 's' - Andar tras (1 celula - 180mm)");
+    SerialBT.println(" 'a' - Girar esquerda");
+    SerialBT.println(" 'd' - Girar direita");
+    SerialBT.println(" 'q' - Parar motores");
+    SerialBT.println(" 'h' - Mostrar este menu");
+    SerialBT.println("=========================================");
+}
 
 void setup() {
     Serial.begin(115200);
@@ -242,16 +331,9 @@ void setup() {
     
     motores_init();
     mpu_init();
+    encoders_init();
     
-    SerialBT.println("=========================================");
-    SerialBT.println("SISTEMA HIBRIDO PRONTO (All-in-One)");
-    SerialBT.println("Comandos Bluetooth:");
-    SerialBT.println(" 'w' - Andar frente");
-    SerialBT.println(" 's' - Andar tras");
-    SerialBT.println(" 'a' - Girar esquerda");
-    SerialBT.println(" 'd' - Girar direita");
-    SerialBT.println(" 'q' - Parar motores");
-    SerialBT.println("=========================================");
+    mostrarMenu();
 }
 
 void loop() {
@@ -262,10 +344,10 @@ void loop() {
         
         switch (cmd) {
             case 'w':
-                andar_reto(VEL_BASE_FRENTE, 1000); 
+                navAndarUmaCelula(false);
                 break;
             case 's':
-                andar_reto(VEL_BASE_RE, 1000); 
+                navAndarUmaCelula(true); 
                 break;
             case 'a':
                 girar(90.0); 
@@ -277,6 +359,9 @@ void loop() {
                 motor_esquerdo_set(0);
                 motor_direito_set(0);
                 SerialBT.println("PARADA DE EMERGENCIA");
+                break;
+            case 'h':
+                mostrarMenu();
                 break;
         }
     }

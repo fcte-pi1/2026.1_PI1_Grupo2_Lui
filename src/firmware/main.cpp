@@ -33,6 +33,11 @@ void setup() {
     Serial.println("-> MPU-6500 inicializado.\n");
     delay(200);
 
+    Serial.println("[BOOT 3.1/5] Calibrando offset do giroscopio (mantenha o robo parado)...");
+    mpu_calibrar_offset_giro();
+    Serial.println("-> Offset do giroscopio calibrado.\n");
+    delay(200);
+
     Serial.println("[BOOT 4/5] Configurando encoders dos motores...");
     encoders_init();
     Serial.println("-> Encoders configurados nos pinos 32, 33 (motor esquerdo) e 34, 35 (motor direito).\n");

@@ -36,7 +36,9 @@
 #define VEL_GIRO 120 // mesma constante do movimento.h
 
 // --- Parametros do giro ---
-#define ANGULO_ALVO 90.0f       // graus
+// Alvo em 45: na pratica o robo girava o dobro (inercia/integracao),
+// entao 45 no gyro resulta em ~90 reais
+#define ANGULO_ALVO 45.0f       // graus
 #define MARGEM_PARADA 3.0f      // para um pouco antes: a inercia completa o giro
 #define TIMEOUT_GIRO_MS 3000    // seguranca
 
@@ -176,7 +178,7 @@ void girar90ComGyro(bool paraDireita) {
 
   zerarAngulo();
 
-  int vel = VEL_GIRO;
+  int vel = VEL_GIRO / 2;
   motorEsquerdoSet(paraDireita ? vel : -vel);
   motorDireitoSet(paraDireita ? -vel : vel);
 

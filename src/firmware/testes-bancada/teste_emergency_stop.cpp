@@ -12,11 +12,11 @@ BluetoothSerial SerialBT;
 static String comandoSerial = "";
 static String comandoBT = "";
 static bool testeFrenteAtivo = false;
-static bool leituraContinua = true;
+static bool leituraContinua = false;
 static unsigned long ultimoLog = 0;
 
-static constexpr int VEL_TESTE_FRENTE = 25;
-static constexpr unsigned long INTERVALO_LOG_MS = 150;
+static constexpr int VEL_TESTE_FRENTE = 40;
+static constexpr unsigned long INTERVALO_LOG_MS = 300;
 
 void logMsg(const String& msg) {
   Serial.println(msg);
@@ -68,7 +68,7 @@ static void iniciarTesteFrente() {
   testeFrenteAtivo = true;
   motor_esquerdo_set(VEL_TESTE_FRENTE);
   motor_direito_set(VEL_TESTE_FRENTE);
-  logMsg("FWD: andando devagar. Aproxime uma parede de qualquer ToF; deve parar em <= 20 mm.");
+  logMsg("FWD: motores ligados para frente em 40%. Aproxime uma parede de qualquer ToF; deve parar em <= 20 mm.");
 }
 
 static void executarRecover() {
@@ -82,7 +82,7 @@ static void mostrarMenu() {
   logMsg("");
   logMsg("===== TESTE EMERGENCY STOP TOF =====");
   logMsg("READ     -> imprime uma leitura dos 3 ToFs");
-  logMsg("TOF_ON   -> imprime leituras continuamente");
+  logMsg("TOF_ON   -> imprime leituras continuamente a cada 300 ms");
   logMsg("TOF_OFF  -> para leituras continuas");
   logMsg("FWD      -> anda devagar ate emergency stop disparar");
   logMsg("RECOVER  -> tenta afastar o robo da parede e rearma a trava");
@@ -154,7 +154,6 @@ void setup() {
 
   motors_stop_all();
   mostrarMenu();
-  imprimirLeituras();
 }
 
 void loop() {
@@ -171,7 +170,7 @@ void loop() {
     imprimirLeituras();
   }
 
-  if (leituraContinua && millis() - ultimoLog >= INTERVALO_LOG_MS) {
+  if ((leituraContinua || testeFrenteAtivo) && millis() - ultimoLog >= INTERVALO_LOG_MS) {
     ultimoLog = millis();
     imprimirLeituras();
   }

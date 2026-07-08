@@ -10,4 +10,5 @@ if not os.path.isdir(BACKEND):
     sys.exit(2)
 
 os.chdir(BACKEND)
-sys.exit(subprocess.call([sys.executable, "-m", "pytest"] + sys.argv[1:]))
+sys.exit(subprocess.call([sys.executable, "-m", "py"] + sys.argv[1:]))
+test

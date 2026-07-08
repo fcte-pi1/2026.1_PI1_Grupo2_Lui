@@ -42,4 +42,11 @@ bool tem_parede_direita();
 void verificar_emergencia();
 void testar_sensores_paredes();
 
+// ── Acesso à média filtrada dos sensores (em mm) ─────
+// Retorna a distância média atual de cada sensor.
+// Usado pelo módulo de centralização para correção lateral.
+uint16_t obterDistanciaEsq();
+uint16_t obterDistanciaFrente();
+uint16_t obterDistanciaDir();
+
 #endif

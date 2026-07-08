@@ -200,3 +200,17 @@ void testar_sensores_paredes() {
         Serial.println(novaDir ? "[MAP MANAGER] Parede Direita Detectada!" : "[MAP MANAGER] Parede Direita Removida!");
     }
 }
+
+// ── Acesso à média filtrada dos sensores ──────────────
+uint16_t obterDistanciaEsq() {
+    return calcularMedia(bufferEsq);
+}
+
+uint16_t obterDistanciaFrente() {
+    return calcularMedia(bufferFrente);
+}
+
+uint16_t obterDistanciaDir() {
+    return calcularMedia(bufferDir);
+}
+

@@ -194,4 +194,4 @@ void loop() {
     tempoAnteriorTOF = tempoAtual;
     lerSensores();
   }
-}s
+}

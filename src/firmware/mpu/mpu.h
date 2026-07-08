@@ -9,6 +9,16 @@ void configurarMPU();
 // Lê e exibe a Aceleração (X, Y) e o Giroscópio (Z)
 void lerExibirMPU();
 
+// ── Integração do Giroscópio Z (Yaw) ─────────────────
+// Deve ser chamada a cada ciclo do loop para integrar o giro Z
+void atualizarMPU();
+
+// Retorna o ângulo yaw acumulado em graus (positivo = anti-horário)
+float obterYaw();
+
+// Zera o acumulador de yaw (chamar ao alinhar o robô)
+void resetarYaw();
+
 #endif
 
 /*

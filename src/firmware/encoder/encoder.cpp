@@ -36,10 +36,9 @@ void encoders_init() {
     pinMode(PIN_ENC1_B, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_ENC1_A), isr_enc1_a, CHANGE);
 
-    // Direito: GPIOs 34/35 são input-only → INPUT sem pull-up
-    // Depende do pull-up externo de 10 kΩ já instalado no hardware
-    pinMode(PIN_ENC2_A, INPUT);
-    pinMode(PIN_ENC2_B, INPUT);
+    // Direito: GPIOs 18/19 suportam pull-up interno (atualizado conforme pins.h)
+    pinMode(PIN_ENC2_A, INPUT_PULLUP);
+    pinMode(PIN_ENC2_B, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(PIN_ENC2_A), isr_enc2_a, CHANGE);
 }
 

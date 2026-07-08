@@ -20,11 +20,29 @@ static const long PULSOS_GIRO_90 = (long)((M_PI * DISTANCIA_EIXOS_MM / 4.0f) * P
 // ── Aguarda encoder atingir alvo ou timeout ───────────
 static void aguardar_pulsos(long alvo_esq, long alvo_dir) {
     unsigned long inicio = millis();
+    unsigned long ultimo_print = 0;
+    
+    Serial.printf("[MOV] Iniciando aguardar_pulsos. Alvo Esq: %ld, Alvo Dir: %ld\n", alvo_esq, alvo_dir);
+    
     while (true) {
-        long esq = abs(encoder_esquerdo_get());
-        long dir = abs(encoder_direito_get());
-        if (esq >= alvo_esq && dir >= alvo_dir) break;
-        if (millis() - inicio > TIMEOUT_MS) break;
+        long raw_esq = encoder_esquerdo_get();
+        long raw_dir = encoder_direito_get();
+        long esq = abs(raw_esq);
+        long dir = abs(raw_dir);
+        
+        if (millis() - ultimo_print >= 100) {
+            ultimo_print = millis();
+            Serial.printf("[MOV] Ticks - Esq: %ld (abs: %ld) | Dir: %ld (abs: %ld)\n", raw_esq, esq, raw_dir, dir);
+        }
+        
+        if (esq >= alvo_esq && dir >= alvo_dir) {
+            Serial.printf("[MOV] Alvo atingido! Esq: %ld/%ld, Dir: %ld/%ld\n", esq, alvo_esq, dir, alvo_dir);
+            break;
+        }
+        if (millis() - inicio > TIMEOUT_MS) {
+            Serial.printf("[MOV] TIMEOUT! Esq: %ld/%ld, Dir: %ld/%ld\n", esq, alvo_esq, dir, alvo_dir);
+            break;
+        }
         delay(1);
     }
     motors_stop_all();

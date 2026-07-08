@@ -5,6 +5,7 @@
 #include "distanceSensor/distanceSensor.h"
 #include "mpu/mpu.h"
 #include "encoder/encoder.h"
+#include "centralizacao/centralizacao.h"
 
 static constexpr int VEL_TESTE = 150;
 
@@ -56,8 +57,14 @@ void loop() {
     // Atualiza o filtro de média dos sensores de distância
     atualizar_filtro_media();
 
+    // Atualiza a integração do giroscópio (yaw)
+    atualizarMPU();
+
     // Verifica freio de emergência
     verificar_emergencia();
+
+    // Centraliza o robô no corredor usando sensores + giroscópio
+    centralizar_no_corredor();
 
     // Imprime mock do map_manager se houve mudança no estado das paredes
     testar_sensores_paredes();

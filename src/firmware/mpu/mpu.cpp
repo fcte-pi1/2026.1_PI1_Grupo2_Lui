@@ -73,3 +73,66 @@ void lerExibirMPU() {
   Serial.print(giroZ_graus);
   Serial.println(" deg/s");
 }
+
+// ── Integração do Giroscópio Z (Yaw) ─────────────────
+
+// Estado interno para integração do yaw
+static float yaw_acumulado = 0.0f;
+static float gyro_z_offset = 0.0f;  // Offset de calibração (bias do sensor)
+static unsigned long ultimo_tempo_mpu = 0;
+static bool mpu_calibrado = false;
+
+// Zona morta: ignora leituras pequenas que são ruído do sensor
+static constexpr float GYRO_DEAD_ZONE = 0.5f;  // graus/s
+
+// Número de amostras para calibração do offset
+static constexpr int CALIBRACAO_AMOSTRAS = 200;
+
+void atualizarMPU() {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    // Calibração inicial: calcula o offset médio do giroscópio Z
+    // O robô DEVE estar parado durante o boot para isso funcionar
+    if (!mpu_calibrado) {
+        static float soma_offset = 0.0f;
+        static int contagem_offset = 0;
+
+        soma_offset += g.gyro.z * 57.2958f;  // rad/s → graus/s
+        contagem_offset++;
+
+        if (contagem_offset >= CALIBRACAO_AMOSTRAS) {
+            gyro_z_offset = soma_offset / (float)CALIBRACAO_AMOSTRAS;
+            mpu_calibrado = true;
+            ultimo_tempo_mpu = micros();
+            Serial.printf("[MPU] Calibração concluída. Offset Z: %.3f deg/s\n", gyro_z_offset);
+        }
+        return;
+    }
+
+    unsigned long agora = micros();
+    float dt = (float)(agora - ultimo_tempo_mpu) / 1000000.0f;  // Δt em segundos
+    ultimo_tempo_mpu = agora;
+
+    // Proteção contra dt absurdo (ex.: primeira chamada ou overflow)
+    if (dt <= 0.0f || dt > 0.5f) return;
+
+    // Converte para graus/s e remove o offset de calibração
+    float giro_z = (g.gyro.z * 57.2958f) - gyro_z_offset;
+
+    // Aplica zona morta para filtrar ruído quando parado
+    if (fabs(giro_z) < GYRO_DEAD_ZONE) {
+        giro_z = 0.0f;
+    }
+
+    // Integração trapezoidal: yaw += giro_z × dt
+    yaw_acumulado += giro_z * dt;
+}
+
+float obterYaw() {
+    return yaw_acumulado;
+}
+
+void resetarYaw() {
+    yaw_acumulado = 0.0f;
+}

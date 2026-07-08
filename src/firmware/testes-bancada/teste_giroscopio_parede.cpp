@@ -1,6 +1,7 @@
 // ==========================================
-// TESTE GERAL DO MICROMOUSE (TESTES UNIFICADOS)
-// Com Bluetooth Serial ("micromouse")
+// TESTE GIROSCOPIO PAREDE (GYRO + TOF HIBRIDO)
+// Usando o teste_geral.cpp como base e adicionando
+// a logica de navegacao hibrida (Sensor Fusion).
 // ==========================================
 #include <Arduino.h>
 #include <Wire.h>
@@ -26,15 +27,25 @@
 #define TOF3_XSHUT 17
 
 // --- Variáveis Globais ---
+// --- Bluetooth ---
 BluetoothSerial SerialBT;
-
-// --- Variáveis de Estado ---
 String comandoBT = "";
 String comandoSerial = "";
+
+// --- Multithread Print (Core 0) ---
+TaskHandle_t TaskPrintHandle;
+volatile bool devePrintar = false;
+volatile float p_anguloZ = 0.0f;
+volatile float p_distEsq = 0.0f;
+volatile float p_distDir = 0.0f;
+volatile int p_pwmEsq = 0;
+volatile int p_pwmDir = 0;
+volatile bool mpuDadosProntos = false;
+
+// --- Variáveis de Estado (leituras contínuas) ---
 bool leituraSensoresContinua = false;
 unsigned long tempoAnteriorSensores = 0;
 bool mpuAtivo = false;
-volatile bool mpuDadosProntos = false;
 
 // --- Variaveis do Encoder ---
 bool encAtivo = false;
@@ -52,6 +63,19 @@ bool tof1Ok = false, tof2Ok = false, tof3Ok = false;
 void logMsg(String msg) {
   Serial.println(msg);
   SerialBT.println(msg);
+}
+
+void taskPrintTelemetry(void * pvParameters) {
+  for(;;) {
+    if (devePrintar) {
+      char buf[120];
+      sprintf(buf, "YAW: %5.2f | Esq: %4.1f cm | Dir: %4.1f cm | PWM_E: %4d | PWM_D: %4d", 
+              p_anguloZ, p_distEsq, p_distDir, p_pwmEsq, p_pwmDir);
+      logMsg(String(buf));
+      devePrintar = false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // Libera o Core 0 por 10ms
+  }
 }
 
 // --- MPU6500 Funções ---
@@ -73,6 +97,10 @@ long mpuOffsetAcelZ = 852;
 long mpuOffsetGiroX = 740;
 long mpuOffsetGiroY = 412;
 long mpuOffsetGiroZ = -32;
+
+// --- Variáveis de Integração do Yaw ---
+float anguloZ = 0.0f;
+unsigned long ultimoTempoGiro = 0;
 
 void lerMPU() {
   mpuDadosProntos = false;
@@ -106,9 +134,7 @@ void lerMPU() {
   }
 }
 
-// --- Integracao do Yaw (mesma logica do teste_giroscopio_parede) ---
-float anguloZ = 0.0f;
-unsigned long ultimoTempoGiro = 0;
+// --- Dummy motor functions removidas (usando motors.h e movimento.h agora) ---
 
 void atualizarGiroscopio() {
   Wire.beginTransmission(MPU6500_ADDR);
@@ -118,8 +144,8 @@ void atualizarGiroscopio() {
 
   if (Wire.available() >= 2) {
     int16_t gzRaw = (Wire.read() << 8) | Wire.read();
-    float gz = (gzRaw - mpuOffsetGiroZ) / 131.0f;
-
+    float gz = (gzRaw - mpuOffsetGiroZ) / 131.0f; 
+    
     unsigned long agora = millis();
     float dt = (agora - ultimoTempoGiro) / 1000.0f;
     ultimoTempoGiro = agora;
@@ -129,8 +155,6 @@ void atualizarGiroscopio() {
     }
   }
 }
-
-// --- Dummy motor functions removidas (usando motors.h e movimento.h agora) ---
 
 // --- Filtro TOF (Média Móvel Exponencial - EMA) ---
 float filtroS1 = 0;
@@ -154,6 +178,129 @@ void lerTOFs() {
   // 3. Imprime os valores já filtrados
   sprintf(buf, "TOF | S1:%4d mm | S2:%4d mm | S3:%4d mm", (int)filtroS1, (int)filtroS2, (int)filtroS3);
   logMsg(String(buf));
+}
+
+void atualizarTOFsSilencioso() {
+  int r1 = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
+  int r2 = tof2Ok ? sensor2.readRangeContinuousMillimeters() - 45 : -1;
+  int r3 = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
+
+  if (r1 != -1 && r1 < 1200) filtroS1 = (filtroS1 == 0) ? r1 : (alphaTOF * r1) + ((1.0 - alphaTOF) * filtroS1);
+  if (r2 != -1 && r2 < 1200) filtroS2 = (filtroS2 == 0) ? r2 : (alphaTOF * r2) + ((1.0 - alphaTOF) * filtroS2);
+  if (r3 != -1 && r3 < 1200) filtroS3 = (filtroS3 == 0) ? r3 : (alphaTOF * r3) + ((1.0 - alphaTOF) * filtroS3);
+}
+
+// ==============================================================
+// LÓGICA PRINCIPAL - TESTE PARADO (GYRO + TOF)
+// ==============================================================
+void manterCentralizadoParado() {
+    float KP_PAREDE = 10.0f;     // Ganho mais agressivo para vencer atrito estático
+
+    float CLEARANCE_MINIMO_CM = 3.0f; // So corrige se a distancia for MENOR que 3 cm
+
+    // Histerese da correcao de direcao (logica de giro do teste_geral/movimento):
+    // comeca a corrigir quando desviar mais que INICIAR, para quando chegar em PARAR
+    const float TOLERANCIA_INICIAR = 3.0f;  // graus
+    const float TOLERANCIA_PARAR   = 0.5f;  // graus
+    bool corrigindoGiro = false;
+
+    anguloZ = 0.0f;
+    ultimoTempoGiro = millis();
+    unsigned long ultimoUpdate = millis();
+    unsigned long ultimoPrint = millis();
+    
+    logMsg("Iniciando teste PARADO (Gyro + TOF). Envie qualquer tecla para SAIR.");
+    
+    // Limpa a serial antes de entrar no loop
+    while (Serial.available()) Serial.read();
+    while (SerialBT.available()) SerialBT.read();
+    
+    // Fica no loop até o usuário enviar algo
+    while (Serial.available() == 0 && SerialBT.available() == 0) {
+           
+        unsigned long agora = millis();
+        
+        // Roda PID a cada 20ms (50Hz)
+        if (agora - ultimoUpdate >= 20) {
+            ultimoUpdate = agora;
+            
+            // --- A. GESTAO DO GIROSCOPIO (Angulo) ---
+            atualizarGiroscopio();
+
+            // --- B. GESTAO DE PAREDES (Centralizacao TOF) ---
+            atualizarTOFsSilencioso();
+            float distEsq = filtroS1 / 10.0f; // mm para cm
+            float distDir = filtroS3 / 10.0f;
+            
+            float erroParede = 0.0f;
+            bool esqPerigo = distEsq > 0 && distEsq < CLEARANCE_MINIMO_CM;
+            bool dirPerigo = distDir > 0 && distDir < CLEARANCE_MINIMO_CM;
+            
+            if (esqPerigo && dirPerigo) {
+                // Caso extremo (muito apertado), centraliza pela diferenca
+                erroParede = distEsq - distDir;
+            } else if (esqPerigo) {
+                // Se invadir o limite de 3cm na esquerda, gera erro de repulsao
+                erroParede = (distEsq - CLEARANCE_MINIMO_CM) * 2.0f;
+            } else if (dirPerigo) {
+                // Se invadir o limite de 3cm na direita, gera erro de repulsao
+                erroParede = (CLEARANCE_MINIMO_CM - distDir) * 2.0f;
+            } else {
+                // Mais do que 3cm das paredes: NENHUMA correcao (segue reto so no Gyro)
+                erroParede = 0.0f;
+            }
+            
+            float correcaoParede = erroParede * KP_PAREDE;
+            if (correcaoParede > 150.0f) correcaoParede = 150.0f;
+            if (correcaoParede < -150.0f) correcaoParede = -150.0f;
+
+            // --- C. CORRECAO DE DIRECAO (logica de giro do teste_geral/movimento) ---
+            // PWM proporcional baixo nao vence o atrito estatico (ficava < zona morta
+            // e o robo parava fora do 0). Aqui gira a VEL_GIRO fixo, como o
+            // girar_esquerda_90/girar_direita_90, ate o gyro voltar perto de 0.
+            if (!corrigindoGiro && abs(anguloZ) > TOLERANCIA_INICIAR) corrigindoGiro = true;
+            if (corrigindoGiro && abs(anguloZ) < TOLERANCIA_PARAR) corrigindoGiro = false;
+
+            int pwmEsq = 0;
+            int pwmDir = 0;
+            if (corrigindoGiro) {
+                // anguloZ > 0 -> girar para a direita (esq +, dir -)
+                pwmEsq = (anguloZ > 0) ? VEL_GIRO : -VEL_GIRO;
+                pwmDir = -pwmEsq;
+            }
+
+            // Repulsao de parede continua somada por cima
+            // erroParede > 0 (mais perto da dir, precisa ir pra esq): freia esq, acelera dir
+            pwmEsq -= (int)correcaoParede;
+            pwmDir += (int)correcaoParede;
+
+            // Permite rodas girarem para tras para o robo rotacionar no proprio eixo
+            pwmEsq = constrain(pwmEsq, -255, 255);
+            pwmDir = constrain(pwmDir, -255, 255);
+
+            // Zona morta para o motor nao ficar apitando com pwm mto baixo (opcional)
+            if (abs(pwmEsq) < 30) pwmEsq = 0;
+            if (abs(pwmDir) < 30) pwmDir = 0;
+
+            motor_esquerdo_set(pwmEsq);
+            motor_direito_set(pwmDir);
+            // --- PRINT DAS LEITURAS EM MULTITHREAD A CADA 250ms ---
+            if (agora - ultimoPrint >= 250) {
+                ultimoPrint = agora;
+                // Passa os valores para a Task no Core 0
+                p_anguloZ = anguloZ;
+                p_distEsq = distEsq;
+                p_distDir = distDir;
+                p_pwmEsq = pwmEsq;
+                p_pwmDir = pwmDir;
+                devePrintar = true; // Aciona a impressao assincrona
+            }
+        }
+        yield();
+    }
+    
+    motors_stop_all(); 
+    logMsg("Teste interrompido. Angulo residual: " + String(anguloZ) + " graus");
 }
 
 // --- Encoders Funções ---
@@ -221,125 +368,32 @@ void calibrarMPU() {
   sprintf(buf, "OFFSET GIRO -> X: %ld | Y: %ld | Z: %ld", mediaGiroX, mediaGiroY, mediaGiroZ);
   logMsg(String(buf));
   logMsg("===============================\n");
-}
 
-// --- Teste Distancia Parede ---
-#define DIST_MIN_PAREDE_MM 30  // 3cm
-#define TEMPO_GIRO_CORRECAO_MS 200
-#define COOLDOWN_CORRECAO_MS 2000  // trava pra girar uma vez so
-
-unsigned long ultimaCorrecao = 0;
-
-void testeDistanciaParede() {
-  // Trava: se acabou de corrigir, ignora (evita girar varias vezes seguidas)
-  if (ultimaCorrecao != 0 && millis() - ultimaCorrecao < COOLDOWN_CORRECAO_MS) {
-    logMsg("Correcao recente, aguardando cooldown...");
-    return;
-  }
-
-  // Le os dois TOFs laterais (S1 = esquerdo, S3 = direito), com os mesmos offsets
-  int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
-  int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
-
-  char buf[80];
-  sprintf(buf, "DIST PAREDE | Esq: %d mm | Dir: %d mm", distEsq, distDir);
-  logMsg(String(buf));
-
-  if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
-    // Muito perto da parede esquerda -> gira pra direita pra se afastar
-    logMsg("Parede esquerda muito perto! Girando pra direita...");
-    girar_direita(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
-    ultimaCorrecao = millis();
-    logMsg("Corrigido!");
-  } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
-    // Muito perto da parede direita -> gira pra esquerda pra se afastar
-    logMsg("Parede direita muito perto! Girando pra esquerda...");
-    girar_esquerda(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
-    ultimaCorrecao = millis();
-    logMsg("Corrigido!");
-  } else {
-    logMsg("Distancia OK, nenhuma correcao necessaria.");
-  }
-}
-
-// --- Teste Ajuste Parede (gira ate afastar, limitado pelo giroscopio) ---
-#define TIMEOUT_AJUSTE_MS 3000     // seguranca: para de girar apos 3s
-#define ANGULO_MAX_AJUSTE 45.0f    // graus: nao gira mais que isso
-
-void testeAjusteParede() {
-  int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
-  int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
-
-  char buf[80];
-  sprintf(buf, "AJUSTE PAREDE | Esq: %d mm | Dir: %d mm", distEsq, distDir);
-  logMsg(String(buf));
-
-  if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
-    // Perto da parede esquerda -> gira pra direita ate passar de 30mm
-    logMsg("Parede esquerda < 30mm! Girando pra direita ate afastar...");
-    anguloZ = 0.0f;
-    ultimoTempoGiro = millis();
-    motor_esquerdo_set(VEL_GIRO / 2);
-    motor_direito_set(-(VEL_GIRO / 2));
-    unsigned long inicio = millis();
-    while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
-      atualizarGiroscopio();
-      if (abs(anguloZ) >= ANGULO_MAX_AJUSTE) {
-        logMsg("Limite de angulo atingido!");
-        break;
-      }
-      distEsq = sensor1.readRangeContinuousMillimeters() - 23;
-      if (distEsq >= DIST_MIN_PAREDE_MM) break;
-      delay(10);
-    }
-    motors_stop_all();
-    sprintf(buf, "Ajustado! Esq: %d mm | Girou: %.1f graus", distEsq, abs(anguloZ));
-    logMsg(String(buf));
-  } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
-    // Perto da parede direita -> gira pra esquerda ate passar de 30mm
-    logMsg("Parede direita < 30mm! Girando pra esquerda ate afastar...");
-    anguloZ = 0.0f;
-    ultimoTempoGiro = millis();
-    motor_esquerdo_set(-(VEL_GIRO / 2));
-    motor_direito_set(VEL_GIRO / 2);
-    unsigned long inicio = millis();
-    while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
-      atualizarGiroscopio();
-      if (abs(anguloZ) >= ANGULO_MAX_AJUSTE) {
-        logMsg("Limite de angulo atingido!");
-        break;
-      }
-      distDir = sensor3.readRangeContinuousMillimeters() - 37;
-      if (distDir >= DIST_MIN_PAREDE_MM) break;
-      delay(10);
-    }
-    motors_stop_all();
-    sprintf(buf, "Ajustado! Dir: %d mm | Girou: %.1f graus", distDir, abs(anguloZ));
-    logMsg(String(buf));
-  } else {
-    logMsg("Distancia OK, nenhum ajuste necessario.");
-  }
+  anguloZ = 0.0f;
+  ultimoTempoGiro = millis();
 }
 
 // --- Menu ---
 void mostrarMenu() {
-  logMsg("\n========= TESTE GERAL MICROMOUSE =========");
-  logMsg("MENU DE COMANDOS:");
+  logMsg("\n===== TESTE GYRO + TOF (PARADO) =====");
+  logMsg("--- Teste Principal ---");
+  logMsg("TESTE    -> Inicia correcao estatica Gyro + TOF (qq tecla p/ sair)");
+  logMsg("INFO     -> Leitura pontual (Yaw + distancia das paredes)");
+  logMsg("CALIBRAR -> Calibra o MPU e zera o Gyro (robo parado e plano)");
+  logMsg("STOP     -> Para motores imediatamente");
+  logMsg("--- Leituras Continuas ---");
   logMsg("TOF_ON   -> Liga leitura dos sensores de distancia (500ms)");
   logMsg("TOF_OFF  -> Desliga leitura dos sensores");
   logMsg("MPU_ON   -> Liga leitura do Giroscopio/Acelerometro");
   logMsg("MPU_OFF  -> Desliga MPU");
+  logMsg("--- Encoders ---");
+  logMsg("ENC      -> Mostra contagem dos Encoders");
   logMsg("ENC_ON   -> Liga impressao de velocidade dos Encoders");
   logMsg("ENC_OFF  -> Desliga impressao de velocidade");
   logMsg("ENC_RST  -> Zera a contagem dos Encoders (Para calibracao)");
-  logMsg("MOV_F    -> Mover 1 Celula Frente (via Encoder)");
-  logMsg("MOV_T    -> Mover 1 Celula Tras (via Encoder)");
-  logMsg("GIR_E    -> Girar 90 graus Esquerda");
-  logMsg("GIR_D    -> Girar 90 graus Direita");
-  logMsg("DIST_PAR -> Teste distancia parede");
-  logMsg("AJU_PAR  -> Gira ate ficar a +30mm da parede lateral");
-  logMsg("HELP     -> Mostra este menu");
-  logMsg("===========================================\n");
+  logMsg("--- Ajuda ---");
+  logMsg("HELP ou ? -> Mostra este menu");
+  logMsg("============================================");
 }
 
 void executarComando(String cmd) {
@@ -348,7 +402,22 @@ void executarComando(String cmd) {
   if (cmd.length() == 0) return;
   logMsg(">> Comando: " + cmd);
 
-  if (cmd == "TOF_ON") {
+  if (cmd == "TESTE" || cmd == "TESTE_P") {
+    manterCentralizadoParado();
+  } else if (cmd == "INFO") {
+    atualizarGiroscopio();
+    atualizarTOFsSilencioso();
+    float e = filtroS1 / 10.0f;
+    float d = filtroS3 / 10.0f;
+    char buf[100];
+    sprintf(buf, "YAW: %.2f | TOF Esq: %.1f cm | TOF Dir: %.1f cm", anguloZ, e, d);
+    logMsg(String(buf));
+  } else if (cmd == "CALIBRAR") {
+    calibrarMPU();
+  } else if (cmd == "STOP") {
+    motors_stop_all();
+    logMsg("Parado.");
+  } else if (cmd == "TOF_ON") {
     leituraSensoresContinua = true;
   } else if (cmd == "TOF_OFF") {
     leituraSensoresContinua = false;
@@ -356,24 +425,6 @@ void executarComando(String cmd) {
     mpuAtivo = true;
   } else if (cmd == "MPU_OFF") {
     mpuAtivo = false;
-  } else if (cmd == "MPU_OFF") {
-    mpuAtivo = false;
-  } else if (cmd == "MOV_F") {
-    logMsg("Movendo 1 celula pra frente...");
-    mover_frente_celula();
-    logMsg("Terminou!");
-  } else if (cmd == "MOV_T") {
-    logMsg("Movendo 1 celula pra tras...");
-    mover_tras_celula();
-    logMsg("Terminou!");
-  } else if (cmd == "GIR_E") {
-    logMsg("Girando 90 graus esquerda...");
-    girar_esquerda_90();
-    logMsg("Terminou!");
-  } else if (cmd == "GIR_D") {
-    logMsg("Girando 90 graus direita...");
-    girar_direita_90();
-    logMsg("Terminou!");
   } else if (cmd == "ENC") {
     lerEncoders();
   } else if (cmd == "ENC_ON") {
@@ -387,18 +438,8 @@ void executarComando(String cmd) {
     encoder_esquerdo_reset();
     encoder_direito_reset();
     logMsg("Encoders zerados com sucesso!");
-  } else if (cmd == "DIST_PAR") {
-    logMsg("Teste distancia parede...");
-    testeDistanciaParede();
-    logMsg("Terminou!");
-  } else if (cmd == "AJU_PAR") {
-    logMsg("Teste ajuste parede...");
-    testeAjusteParede();
-    logMsg("Terminou!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
-  } else if (cmd == "CALIBRAR") {
-    calibrarMPU();
   } else {
     logMsg("Comando desconhecido. Digite HELP.");
   }
@@ -441,12 +482,25 @@ void setup() {
   escreverReg(REG_INT_ENABLE, 0x01);
   pinMode(MPU_INT_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(MPU_INT_PIN), funcaoInterrupcaoMPU, RISING);
-
-  logMsg("\n--- INICIALIZACAO COMPLETA ---");
+  
+  // --- Init Multithread Print Task no Core 0 ---
+  // O loop principal do Arduino roda no Core 1. Ao jogar o print pro Core 0,
+  // evitamos qualquer lag de envio do Bluetooth de afetar o PID.
+  xTaskCreatePinnedToCore(
+      taskPrintTelemetry,   /* Funcao da task */
+      "TaskPrint",          /* Nome */
+      4096,                 /* Tamanho da stack */
+      NULL,                 /* Parametros */
+      1,                    /* Prioridade (1 = baixa) */
+      &TaskPrintHandle,     /* Handle */
+      0);                   /* Nucleo (Core 0 = PRO_CPU, lida com WiFi/BT) */
+  
+  logMsg("Inicializacao concluida.");
   mostrarMenu();
 }
 
 void loop() {
+  // --- Leitura de Comandos (Serial) ---
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
@@ -456,6 +510,8 @@ void loop() {
       comandoSerial += c;
     }
   }
+  
+  // --- Leitura de Comandos (Bluetooth) ---
   while (SerialBT.available()) {
     char c = SerialBT.read();
     if (c == '\n' || c == '\r') {
@@ -466,6 +522,7 @@ void loop() {
     }
   }
 
+  // --- Leituras Contínuas ---
   unsigned long tempoAtual = millis();
   if (leituraSensoresContinua && tempoAtual - tempoAnteriorSensores >= 500) {
     tempoAnteriorSensores = tempoAtual;
@@ -475,12 +532,12 @@ void loop() {
   if (encAtivo && tempoAtual - lastEncTime >= 500) {
     long curEsq = encoder_esquerdo_get();
     long curDir = encoder_direito_get();
-    
+
     // Calcula a variação (ticks por segundo)
     long deltaT = tempoAtual - lastEncTime;
     long varEsq = (curEsq - lastEncEsq) * 1000 / deltaT;
     long varDir = (curDir - lastEncDir) * 1000 / deltaT;
-    
+
     lastEncEsq = curEsq;
     lastEncDir = curDir;
     lastEncTime = tempoAtual;

@@ -2,6 +2,7 @@
 #include "../motors/motors.h"
 #include "../encoder/encoder.h"
 #include "../mpu/mpu.h"
+#include "../distanceSensor/distanceSensor.h"
 #include <math.h>
 
 // ── Cálculos derivados das constantes ────────────────
@@ -99,6 +100,46 @@ void girar_direita_90() {
 
 void girar_180() {
     girar_com_giroscopio(VEL_GIRO, -VEL_GIRO, 180.0f);
+}
+
+// ── Ajuste de parede direita ──────────────────────────
+// Se estiver a menos de DIST_MIN_DIREITA_MM (50 mm) da parede
+// direita, gira à esquerda até a distância voltar a >= 50 mm.
+void ajuste_parede_direita() {
+    atualizar_filtro_media();
+    if (distancia_direita_mm() >= DIST_MIN_DIREITA_MM) return;
+
+    // Gira no próprio eixo para a esquerda
+    motor_esquerdo_set(-VEL_AJUSTE);
+    motor_direito_set(VEL_AJUSTE);
+
+    unsigned long inicio = millis();
+    while (distancia_direita_mm() < DIST_MIN_DIREITA_MM) {
+        if (millis() - inicio > TIMEOUT_MS) break; // segurança
+        atualizar_filtro_media(); // mantém a média do sensor atualizada
+        delay(20);                // sensores leem a cada 20 ms
+    }
+    motors_stop_all();
+}
+
+// ── Ajuste de parede esquerda ─────────────────────────
+// Se estiver a menos de DIST_MIN_ESQUERDA_MM (50 mm) da parede
+// esquerda, gira à direita até a distância voltar a >= 50 mm.
+void ajuste_parede_esquerda() {
+    atualizar_filtro_media();
+    if (distancia_esquerda_mm() >= DIST_MIN_ESQUERDA_MM) return;
+
+    // Gira no próprio eixo para a direita
+    motor_esquerdo_set(VEL_AJUSTE);
+    motor_direito_set(-VEL_AJUSTE);
+
+    unsigned long inicio = millis();
+    while (distancia_esquerda_mm() < DIST_MIN_ESQUERDA_MM) {
+        if (millis() - inicio > TIMEOUT_MS) break; // segurança
+        atualizar_filtro_media(); // mantém a média do sensor atualizada
+        delay(20);                // sensores leem a cada 20 ms
+    }
+    motors_stop_all();
 }
 
 // ── Funções legadas por tempo ─────────────────────────

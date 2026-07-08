@@ -68,21 +68,11 @@
 #define ZONA3_GRAUS            8.0f  // acima disso: 40%
 // Abaixo de ZONA3 ate o corte: 25%
 
-// Corte antecipado: para o motor ANTES do alvo. A inercia carrega o robo
-// os graus restantes. Ajuste este valor experimentalmente:
-// - Se o robo PARA ANTES do alvo: diminua.
-// - Se o robo PASSA DO alvo: aumente.
-#define CORTE_ANTECIPADO_GRAUS 3.0f  // graus antes do alvo p/ cortar o motor
-
-// Fase 2 — Correcao de overshoot (malha fechada proporcional):
-// PWM proporcional ao erro: quanto mais longe, mais forte o pulso.
-// Formula: pwm = max(PWM_MIN, min(PWM_MAX, erro * GANHO))
-#define CORRECAO_PWM_MIN       80   // duty minimo pra vencer a friccao estatica
-#define CORRECAO_PWM_MAX      150   // duty maximo da correcao (nao quer overshoot)
-#define CORRECAO_GANHO        12.0f // ganho proporcional: pwm = erro_graus * GANHO
-#define ASSENTAMENTO_MS       200   // tempo parado p/ a inercia terminar antes de medir
-#define PULSO_CORRECAO_MS     100   // duracao maxima de cada pulso de correcao
-#define MAX_PULSOS_CORRECAO    10   // seguranca: no. maximo de pulsos
+// =====================================================================
+// PARAMETROS DE TUNAGEM — todos ajustaveis em runtime via Bluetooth!
+// Use os comandos CORTE, GANHO, PMIN, PMAX, MARGEM, ASSENT pra mudar.
+// Use PARAMS pra ver os valores atuais. Use BENCH pra testar.
+// =====================================================================
 
 // --- Variaveis Globais ---
 BluetoothSerial SerialBT;
@@ -96,6 +86,28 @@ float alvoRumo_deg = 0.0f;              // alvo ACUMULADO do giro (grade de 90),
 int   pwmGiro = VEL_GIRO_PWM_PADRAO;    // duty PWM do giro (0-255), ajustavel via PWM
 unsigned long ultimaAtualizacao_us = 0;
 bool bussolaStreaming = false;          // modo BUSSOLA ligado?
+
+// --- Parametros de tunagem (ajustaveis em runtime) ---
+// Corte antecipado: para o motor ANTES do alvo. A inercia carrega o resto.
+// Se o robo PARA ANTES do alvo: diminua. Se PASSA DO alvo: aumente.
+float corteAntecipadoGraus = 3.0f;
+
+// Correcao proporcional: PWM = clamp(erro * ganho, pMin, pMax)
+int   correcaoPwmMin  = 80;    // duty minimo pra vencer friccao estatica
+int   correcaoPwmMax  = 150;   // duty maximo da correcao
+float correcaoGanho   = 12.0f; // ganho proporcional
+
+// Margem de precisao: abaixo disso, consideramos "no alvo"
+float margemParadaGraus = 1.5f;
+
+// Tempo de assentamento (ms) — espera a inercia terminar antes de medir
+unsigned long assentamentoMs = 200;
+
+// Pulso de correcao: duracao maxima de cada micro-pulso
+unsigned long pulsoCorrecaoMs = 100;
+
+// Numero maximo de pulsos de correcao (seguranca)
+int maxPulsosCorrecao = 10;
 
 // --- Utilitarias ---
 void logMsg(String msg) {
@@ -266,6 +278,7 @@ void assentarInercia(unsigned long ms) {
     delay(2);
   }
 }
+void assentarInerciaDefault() { assentarInercia(assentamentoMs); }
 
 // --- Calcula o PWM proporcional a distancia que falta (Fase 1) ---------------
 // Retorna um valor de PWM entre ~25% e 100% do pwmGiro, conforme a zona.
@@ -274,6 +287,22 @@ int pwmProporcional(float falta) {
   if (falta > ZONA2_GRAUS)  return (int)(pwmGiro * 0.60f);         // 60%
   if (falta > ZONA3_GRAUS)  return (int)(pwmGiro * 0.40f);         // 40%
   return (int)(pwmGiro * 0.25f);                                   // 25% minimo
+}
+
+// --- Mostra todos os parametros de tunagem atuais ---
+void mostrarParams() {
+  char buf[80];
+  logMsg("\n--- PARAMETROS DE TUNAGEM ATUAIS ---");
+  sprintf(buf, "PWM cruzeiro:   %d (0-255)", pwmGiro);       logMsg(buf);
+  sprintf(buf, "CORTE antecip:  %.1f graus", corteAntecipadoGraus); logMsg(buf);
+  sprintf(buf, "MARGEM parada:  %.1f graus", margemParadaGraus);    logMsg(buf);
+  sprintf(buf, "GANHO correcao: %.1f", correcaoGanho);              logMsg(buf);
+  sprintf(buf, "PMIN correcao:  %d", correcaoPwmMin);               logMsg(buf);
+  sprintf(buf, "PMAX correcao:  %d", correcaoPwmMax);               logMsg(buf);
+  sprintf(buf, "ASSENT (ms):    %lu", assentamentoMs);              logMsg(buf);
+  sprintf(buf, "PULSO (ms):     %lu", pulsoCorrecaoMs);             logMsg(buf);
+  sprintf(buf, "MAX PULSOS:     %d", maxPulsosCorrecao);            logMsg(buf);
+  logMsg("------------------------------------\n");
 }
 
 // --- Gira ate a bussola bater no ALVO ABSOLUTO acumulado (alvoRumo_deg) -----
@@ -309,7 +338,7 @@ void girarParaAlvo(float alvo, bool paraDireita) {
     float falta = faltaParaAlvo(alvo, paraDireita);
 
     // Corte antecipado: para o motor ANTES do alvo pra inercia completar
-    if (falta <= CORTE_ANTECIPADO_GRAUS) break;
+    if (falta <= corteAntecipadoGraus) break;
     // Passou do ponto: a falta "da a volta" (>180) -> para imediatamente
     if (falta > 180.0f) break;
     if (millis() - inicio > TIMEOUT_GIRO_MS) {
@@ -331,43 +360,38 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   // ══════════════════════════════════════════════════════════════════════
   // FASE 2: Correcao de overshoot (malha fechada PROPORCIONAL)
   // ══════════════════════════════════════════════════════════════════════
-  // Apos a freada, a inercia pode ter jogado o robo alguns graus alem (ou
-  // aquem). Esperamos assentar, medimos o erro real e corrigimos com
-  // pulsos curtos e PWM proporcional ao erro.
-  for (int pulso = 0; pulso < MAX_PULSOS_CORRECAO; pulso++) {
-    assentarInercia(ASSENTAMENTO_MS);       // espera parar de vez e atualiza o rumo
+  for (int pulso = 0; pulso < maxPulsosCorrecao; pulso++) {
+    assentarInerciaDefault();
 
     float erro = erroParaAlvo(alvo);
     float erroAbs = fabsf(erro);
-    if (erroAbs <= MARGEM_PARADA_GRAUS) break;  // ja esta no alvo!
+    if (erroAbs <= margemParadaGraus) break;
 
     // PWM proporcional ao erro: pouco erro -> pouca forca
-    int pwmCorrecao = (int)(erroAbs * CORRECAO_GANHO);
-    pwmCorrecao = constrain(pwmCorrecao, CORRECAO_PWM_MIN, CORRECAO_PWM_MAX);
+    int pwmCorrecao = (int)(erroAbs * correcaoGanho);
+    pwmCorrecao = constrain(pwmCorrecao, correcaoPwmMin, correcaoPwmMax);
 
-    // Gira no sentido que REDUZ o erro (independe do sentido do giro original)
-    bool corrigirEsq = (erro > 0.0f);       // erro>0 -> aumentar rumo -> esquerda
+    bool corrigirEsq = (erro > 0.0f);
     int se = corrigirEsq ? -1 : +1;
     int sd = corrigirEsq ? +1 : -1;
     motorEsquerdoSet(se * pwmCorrecao);
     motorDireitoSet(sd * pwmCorrecao);
 
-    // Pulso curto: corta assim que entrar na margem pra nao passar de novo
     unsigned long tPulso = millis();
-    while (millis() - tPulso < PULSO_CORRECAO_MS) {
+    while (millis() - tPulso < pulsoCorrecaoMs) {
       atualizarBussola();
-      if (fabsf(erroParaAlvo(alvo)) <= MARGEM_PARADA_GRAUS) break;
+      if (fabsf(erroParaAlvo(alvo)) <= margemParadaGraus) break;
       delay(2);
     }
     motoresParar();
   }
-  assentarInercia(ASSENTAMENTO_MS);         // assenta e mede o resultado final
+  assentarInerciaDefault();
 
   char buf[100];
   float erroFinal = erroParaAlvo(alvo);
   sprintf(buf, "Giro OK! Alvo:%.0f | Rumo:%.1f | Erro:%.1f | %s",
           alvo, rumo_deg, erroFinal,
-          (fabsf(erroFinal) <= MARGEM_PARADA_GRAUS) ? "PRECISO" : "FORA DA MARGEM");
+          (fabsf(erroFinal) <= margemParadaGraus) ? "PRECISO" : "FORA DA MARGEM");
   logMsg(String(buf));
 }
 
@@ -381,21 +405,134 @@ void girarEsquerda90() {
   girarParaAlvo(alvoRumo_deg, false);
 }
 
+// ==========================================================================
+// BENCH: Teste de bancada automatizado
+// Faz N giros de 90 graus (padrao: 4 = volta completa 360), coleta o erro
+// de cada giro, e mostra estatisticas (media, maximo, desvio padrao).
+// Uso: BENCH        -> 4 giros pra direita (padrao)
+//      BENCH 8      -> 8 giros pra direita (2 voltas)
+//      BENCH 4 E    -> 4 giros pra esquerda
+//      BENCH 6 D    -> 6 giros pra direita
+// ==========================================================================
+void executarBench(int nGiros, bool paraDireita) {
+  char buf[120];
+  sprintf(buf, "\n=== BENCH: %d giros de 90 pra %s ===",
+          nGiros, paraDireita ? "DIREITA" : "ESQUERDA");
+  logMsg(String(buf));
+  mostrarParams();
+
+  // Zera a referencia antes do teste
+  definirNorte();
+  delay(500);
+
+  float erros[20];  // max 20 giros por bench
+  nGiros = constrain(nGiros, 1, 20);
+
+  float somaErro = 0.0f;
+  float somaErro2 = 0.0f;
+  float erroMax = 0.0f;
+  int   precisos = 0;
+
+  for (int i = 0; i < nGiros; i++) {
+    sprintf(buf, "\n--- Giro %d/%d ---", i + 1, nGiros);
+    logMsg(String(buf));
+
+    float alvoAntes = alvoRumo_deg;
+    if (paraDireita) {
+      girarDireita90();
+    } else {
+      girarEsquerda90();
+    }
+
+    float erro = fabsf(erroParaAlvo(alvoRumo_deg));
+    erros[i] = erro;
+    somaErro += erro;
+    somaErro2 += erro * erro;
+    if (erro > erroMax) erroMax = erro;
+    if (erro <= margemParadaGraus) precisos++;
+
+    // Pausa entre giros pra inercia assentar de vez
+    delay(800);
+  }
+
+  // --- Estatisticas ---
+  float media = somaErro / nGiros;
+  float variancia = (somaErro2 / nGiros) - (media * media);
+  float desvio = (variancia > 0.0f) ? sqrtf(variancia) : 0.0f;
+
+  logMsg("\n========== RESULTADO DO BENCH ==========");
+  logMsg("Giro | Alvo esperado | Erro (graus)");
+  logMsg("-----|--------------|-------------");
+  for (int i = 0; i < nGiros; i++) {
+    float alvoEsp;
+    if (paraDireita) {
+      alvoEsp = normalizar360(-PASSO_GIRO_GRAUS * (i + 1));
+    } else {
+      alvoEsp = normalizar360(PASSO_GIRO_GRAUS * (i + 1));
+    }
+    sprintf(buf, "  %2d |    %5.0f      |   %5.1f  %s",
+            i + 1, alvoEsp, erros[i],
+            (erros[i] <= margemParadaGraus) ? "OK" : "FORA");
+    logMsg(String(buf));
+  }
+  logMsg("----------------------------------------");
+  sprintf(buf, "Media:  %.2f graus", media);    logMsg(buf);
+  sprintf(buf, "Maximo: %.2f graus", erroMax);  logMsg(buf);
+  sprintf(buf, "Desvio: %.2f graus", desvio);   logMsg(buf);
+  sprintf(buf, "Precisos: %d/%d (margem: %.1f)", precisos, nGiros, margemParadaGraus);
+  logMsg(String(buf));
+
+  sprintf(buf, "Rumo final: %.1f (esperado: %.1f)",
+          rumo_deg, alvoRumo_deg);
+  logMsg(String(buf));
+  logMsg("========================================\n");
+
+  // Dica automatica baseada nos resultados
+  if (media > 3.0f) {
+    logMsg("[DICA] Erro medio alto. Tente: CORTE + alguns graus.");
+  } else if (media > margemParadaGraus && desvio < 1.5f) {
+    logMsg("[DICA] Erro consistente. Ajuste CORTE (erro sistematico).");
+  } else if (desvio > 2.0f) {
+    logMsg("[DICA] Erro muito variavel. Reduza PWM ou aumente GANHO.");
+  } else {
+    logMsg("[DICA] Resultados bons! Tunagem OK.");
+  }
+}
+
+// --- Funcao auxiliar: extrai float de um comando (ex: "CORTE 4.5" -> 4.5) ---
+float extrairFloat(String cmd, int posEspaco) {
+  return cmd.substring(posEspaco + 1).toFloat();
+}
+int extrairInt(String cmd, int posEspaco) {
+  return cmd.substring(posEspaco + 1).toInt();
+}
+
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= BUSSOLA (GYRO MPU6500) =========");
-  logMsg("MENU DE COMANDOS:");
+  logMsg("--- COMANDOS BASICOS ---");
   logMsg("NORTE    -> Define o rumo atual como Norte (zera)");
-  logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
-  logMsg("GIR_D    -> Gira 90 graus pra Direita (mede pela bussola)");
-  logMsg("GIR_E    -> Gira 90 graus pra Esquerda (mede pela bussola)");
-  logMsg("PWM n    -> Ajusta o PWM do giro (0-255). Ex.: PWM 200");
-  logMsg("PWM      -> Mostra o PWM do giro atual");
-  logMsg("BUS_ON   -> Liga o streaming continuo do rumo (200ms)");
-  logMsg("BUS_OFF  -> Desliga o streaming continuo do rumo");
-  logMsg("CALIBRAR -> Recalibra o offset do gyro (robo parado)");
-  logMsg("HELP     -> Mostra este menu");
-  logMsg("Obs: heading e RELATIVO (sem magnetometro) e sofre drift.");
+  logMsg("RUMO     -> Mostra o rumo atual (0-360)");
+  logMsg("GIR_D    -> Gira 90 pra Direita");
+  logMsg("GIR_E    -> Gira 90 pra Esquerda");
+  logMsg("BUS_ON   -> Streaming continuo do rumo");
+  logMsg("BUS_OFF  -> Desliga streaming");
+  logMsg("CALIBRAR -> Recalibra offset do gyro");
+  logMsg("");
+  logMsg("--- BANCADA (TUNAGEM) ---");
+  logMsg("BENCH      -> 4 giros D (volta completa)");
+  logMsg("BENCH n    -> n giros pra Direita");
+  logMsg("BENCH n E  -> n giros pra Esquerda");
+  logMsg("PARAMS     -> Mostra parametros atuais");
+  logMsg("PWM n      -> PWM cruzeiro (0-255)");
+  logMsg("CORTE n    -> Corte antecipado (graus)");
+  logMsg("MARGEM n   -> Margem de precisao (graus)");
+  logMsg("GANHO n    -> Ganho proporcional correcao");
+  logMsg("PMIN n     -> PWM minimo da correcao");
+  logMsg("PMAX n     -> PWM maximo da correcao");
+  logMsg("ASSENT n   -> Tempo assentamento (ms)");
+  logMsg("PULSO n    -> Duracao pulso correcao (ms)");
+  logMsg("HELP       -> Este menu");
   logMsg("==========================================\n");
 }
 
@@ -404,6 +541,8 @@ void executarComando(String cmd) {
   cmd.toUpperCase();
   if (cmd.length() == 0) return;
   logMsg(">> Comando: " + cmd);
+
+  char buf[80];
 
   if (cmd == "NORTE") {
     definirNorte();
@@ -415,19 +554,91 @@ void executarComando(String cmd) {
   } else if (cmd == "GIR_E") {
     logMsg("Girando 90 graus pra ESQUERDA...");
     girarEsquerda90();
-  } else if (cmd == "PWM" || cmd.startsWith("PWM ") ||
-             cmd == "VEL" || cmd.startsWith("VEL ")) {   // VEL: alias antigo
-    char buf[48];
-    if (cmd == "PWM" || cmd == "VEL") {
-      // sem argumento: so mostra o PWM atual
+
+  // --- BENCH ---
+  } else if (cmd == "BENCH" || cmd.startsWith("BENCH ")) {
+    int n = 4;
+    bool dir = true;
+    if (cmd.startsWith("BENCH ")) {
+      String args = cmd.substring(6);
+      args.trim();
+      // BENCH n ou BENCH n E/D
+      int espaco = args.indexOf(' ');
+      if (espaco > 0) {
+        n = args.substring(0, espaco).toInt();
+        String sentido = args.substring(espaco + 1);
+        sentido.trim();
+        if (sentido == "E") dir = false;
+      } else {
+        n = args.toInt();
+      }
+      if (n <= 0) n = 4;
+    }
+    executarBench(n, dir);
+
+  // --- PARAMS ---
+  } else if (cmd == "PARAMS") {
+    mostrarParams();
+
+  // --- PWM ---
+  } else if (cmd == "PWM" || cmd.startsWith("PWM ")) {
+    if (cmd == "PWM") {
       sprintf(buf, "PWM do giro: %d (0-255)", pwmGiro);
       logMsg(String(buf));
     } else {
-      int v = cmd.substring(4).toInt();          // texto depois de "PWM " / "VEL "
-      pwmGiro = constrain(v, 0, 255);            // duty PWM direto
-      sprintf(buf, "PWM do giro ajustado para %d (0-255)", pwmGiro);
-      logMsg(String(buf));
+      pwmGiro = constrain(extrairInt(cmd, 3), 0, 255);
+      sprintf(buf, "PWM -> %d", pwmGiro); logMsg(buf);
     }
+
+  // --- CORTE ---
+  } else if (cmd.startsWith("CORTE ")) {
+    corteAntecipadoGraus = constrain(extrairFloat(cmd, 5), 0.0f, 30.0f);
+    sprintf(buf, "CORTE -> %.1f graus", corteAntecipadoGraus); logMsg(buf);
+  } else if (cmd == "CORTE") {
+    sprintf(buf, "CORTE: %.1f graus", corteAntecipadoGraus); logMsg(buf);
+
+  // --- MARGEM ---
+  } else if (cmd.startsWith("MARGEM ")) {
+    margemParadaGraus = constrain(extrairFloat(cmd, 6), 0.1f, 10.0f);
+    sprintf(buf, "MARGEM -> %.1f graus", margemParadaGraus); logMsg(buf);
+  } else if (cmd == "MARGEM") {
+    sprintf(buf, "MARGEM: %.1f graus", margemParadaGraus); logMsg(buf);
+
+  // --- GANHO ---
+  } else if (cmd.startsWith("GANHO ")) {
+    correcaoGanho = constrain(extrairFloat(cmd, 5), 1.0f, 50.0f);
+    sprintf(buf, "GANHO -> %.1f", correcaoGanho); logMsg(buf);
+  } else if (cmd == "GANHO") {
+    sprintf(buf, "GANHO: %.1f", correcaoGanho); logMsg(buf);
+
+  // --- PMIN ---
+  } else if (cmd.startsWith("PMIN ")) {
+    correcaoPwmMin = constrain(extrairInt(cmd, 4), 30, 255);
+    sprintf(buf, "PMIN -> %d", correcaoPwmMin); logMsg(buf);
+  } else if (cmd == "PMIN") {
+    sprintf(buf, "PMIN: %d", correcaoPwmMin); logMsg(buf);
+
+  // --- PMAX ---
+  } else if (cmd.startsWith("PMAX ")) {
+    correcaoPwmMax = constrain(extrairInt(cmd, 4), 50, 255);
+    sprintf(buf, "PMAX -> %d", correcaoPwmMax); logMsg(buf);
+  } else if (cmd == "PMAX") {
+    sprintf(buf, "PMAX: %d", correcaoPwmMax); logMsg(buf);
+
+  // --- ASSENT ---
+  } else if (cmd.startsWith("ASSENT ")) {
+    assentamentoMs = constrain((unsigned long)extrairInt(cmd, 6), 50UL, 2000UL);
+    sprintf(buf, "ASSENT -> %lu ms", assentamentoMs); logMsg(buf);
+  } else if (cmd == "ASSENT") {
+    sprintf(buf, "ASSENT: %lu ms", assentamentoMs); logMsg(buf);
+
+  // --- PULSO ---
+  } else if (cmd.startsWith("PULSO ")) {
+    pulsoCorrecaoMs = constrain((unsigned long)extrairInt(cmd, 5), 10UL, 500UL);
+    sprintf(buf, "PULSO -> %lu ms", pulsoCorrecaoMs); logMsg(buf);
+  } else if (cmd == "PULSO") {
+    sprintf(buf, "PULSO: %lu ms", pulsoCorrecaoMs); logMsg(buf);
+
   } else if (cmd == "BUS_ON") {
     bussolaStreaming = true;
     logMsg("Streaming da bussola LIGADO.");

@@ -5,6 +5,11 @@
 
 Adafruit_MPU6050 mpu;
 
+// ── Estado da integração do ângulo (eixo Z / yaw) ─────
+static float offsetGiroZ_dps = 0.0f;      // bias do giroscópio, em graus/s
+static float anguloAcumulado_deg = 0.0f;  // ângulo integrado, em graus
+static unsigned long ultimaAtualizacao_us = 0;
+
 void configurarMPU() {
 
   // Inicializa o MPU-6500 no endereço padrão 0x68 e atrela ao barramento Wire já existente
@@ -72,4 +77,56 @@ void lerExibirMPU() {
   Serial.print(" m/s^2 \t|\t Giro Z (Yaw): ");
   Serial.print(giroZ_graus);
   Serial.println(" deg/s");
+}
+
+// ── Calibração do offset (bias) do giroscópio em Z ────
+// MEMS de giroscópio sempre tem um pequeno bias mesmo parado; sem descontar
+// esse valor, a integração ao longo de um giro acumula erro (drift).
+void mpu_calibrar_offset_giro() {
+  Serial.println("[MPU] Calibrando offset do giroscopio (Z)... mantenha o robo parado.");
+  delay(500);
+
+  sensors_event_t a, g, temp;
+  const int N_AMOSTRAS = 500;
+  double soma_dps = 0.0;
+
+  for (int i = 0; i < N_AMOSTRAS; i++) {
+    mpu.getEvent(&a, &g, &temp);
+    soma_dps += g.gyro.z * 57.2958;
+    delay(3);
+  }
+
+  offsetGiroZ_dps = (float)(soma_dps / N_AMOSTRAS);
+  Serial.print("[MPU] Offset giro Z: ");
+  Serial.print(offsetGiroZ_dps);
+  Serial.println(" graus/s");
+}
+
+// ── Integração do ângulo (yaw) ────────────────────────
+void mpu_atualizar_angulo() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  unsigned long agora_us = micros();
+  if (ultimaAtualizacao_us == 0) {
+    // Primeira chamada: so registra a referencia de tempo, sem integrar
+    // (senao dt viria absurdamente grande e o angulo saltaria).
+    ultimaAtualizacao_us = agora_us;
+    return;
+  }
+
+  float dt_s = (agora_us - ultimaAtualizacao_us) / 1000000.0f;
+  ultimaAtualizacao_us = agora_us;
+
+  float giroZ_dps = (g.gyro.z * 57.2958f) - offsetGiroZ_dps;
+  anguloAcumulado_deg += giroZ_dps * dt_s;
+}
+
+void mpu_zerar_angulo() {
+  anguloAcumulado_deg = 0.0f;
+  ultimaAtualizacao_us = micros();
+}
+
+float mpu_get_angulo() {
+  return anguloAcumulado_deg;
 }

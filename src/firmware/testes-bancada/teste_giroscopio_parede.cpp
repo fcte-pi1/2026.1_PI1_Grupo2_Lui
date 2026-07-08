@@ -42,6 +42,11 @@ volatile int p_pwmEsq = 0;
 volatile int p_pwmDir = 0;
 volatile bool mpuDadosProntos = false;
 
+// --- Variáveis de Estado (leituras contínuas) ---
+bool leituraSensoresContinua = false;
+unsigned long tempoAnteriorSensores = 0;
+bool mpuAtivo = false;
+
 // --- Variaveis do Encoder ---
 bool encAtivo = false;
 long lastEncEsq = 0;
@@ -189,12 +194,17 @@ void atualizarTOFsSilencioso() {
 // LÓGICA PRINCIPAL - TESTE PARADO (GYRO + TOF)
 // ==============================================================
 void manterCentralizadoParado() {
-    float KP_GIRO = 3.5f;       
     float KP_PAREDE = 10.0f;     // Ganho mais agressivo para vencer atrito estático
-    
+
     float CLEARANCE_MINIMO_CM = 3.0f; // So corrige se a distancia for MENOR que 3 cm
-    
-    anguloZ = 0.0f; 
+
+    // Histerese da correcao de direcao (logica de giro do teste_geral/movimento):
+    // comeca a corrigir quando desviar mais que INICIAR, para quando chegar em PARAR
+    const float TOLERANCIA_INICIAR = 3.0f;  // graus
+    const float TOLERANCIA_PARAR   = 0.5f;  // graus
+    bool corrigindoGiro = false;
+
+    anguloZ = 0.0f;
     ultimoTempoGiro = millis();
     unsigned long ultimoUpdate = millis();
     unsigned long ultimoPrint = millis();
@@ -216,9 +226,7 @@ void manterCentralizadoParado() {
             
             // --- A. GESTAO DO GIROSCOPIO (Angulo) ---
             atualizarGiroscopio();
-            float erroGiro = 0.0f - anguloZ; 
-            float correcaoGiro = erroGiro * KP_GIRO;
-            
+
             // --- B. GESTAO DE PAREDES (Centralizacao TOF) ---
             atualizarTOFsSilencioso();
             float distEsq = filtroS1 / 10.0f; // mm para cm
@@ -245,21 +253,35 @@ void manterCentralizadoParado() {
             float correcaoParede = erroParede * KP_PAREDE;
             if (correcaoParede > 150.0f) correcaoParede = 150.0f;
             if (correcaoParede < -150.0f) correcaoParede = -150.0f;
-            
-            // --- C. COMBINANDO ---
-            // Como esta PARADO (PWM Base = 0), a correcao vai diretamente girar o robo.
+
+            // --- C. CORRECAO DE DIRECAO (logica de giro do teste_geral/movimento) ---
+            // PWM proporcional baixo nao vence o atrito estatico (ficava < zona morta
+            // e o robo parava fora do 0). Aqui gira a VEL_GIRO fixo, como o
+            // girar_esquerda_90/girar_direita_90, ate o gyro voltar perto de 0.
+            if (!corrigindoGiro && abs(anguloZ) > TOLERANCIA_INICIAR) corrigindoGiro = true;
+            if (corrigindoGiro && abs(anguloZ) < TOLERANCIA_PARAR) corrigindoGiro = false;
+
+            int pwmEsq = 0;
+            int pwmDir = 0;
+            if (corrigindoGiro) {
+                // anguloZ > 0 -> girar para a direita (esq +, dir -)
+                pwmEsq = (anguloZ > 0) ? VEL_GIRO : -VEL_GIRO;
+                pwmDir = -pwmEsq;
+            }
+
+            // Repulsao de parede continua somada por cima
             // erroParede > 0 (mais perto da dir, precisa ir pra esq): freia esq, acelera dir
-            int pwmEsq = 0 - (int)correcaoGiro - (int)correcaoParede;
-            int pwmDir = 0 + (int)correcaoGiro + (int)correcaoParede;
-            
+            pwmEsq -= (int)correcaoParede;
+            pwmDir += (int)correcaoParede;
+
             // Permite rodas girarem para tras para o robo rotacionar no proprio eixo
             pwmEsq = constrain(pwmEsq, -255, 255);
             pwmDir = constrain(pwmDir, -255, 255);
-            
+
             // Zona morta para o motor nao ficar apitando com pwm mto baixo (opcional)
             if (abs(pwmEsq) < 30) pwmEsq = 0;
             if (abs(pwmDir) < 30) pwmDir = 0;
-            
+
             motor_esquerdo_set(pwmEsq);
             motor_direito_set(pwmDir);
             // --- PRINT DAS LEITURAS EM MULTITHREAD A CADA 250ms ---
@@ -354,11 +376,23 @@ void calibrarMPU() {
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n===== TESTE GYRO + TOF (PARADO) =====");
-  logMsg("TESTE    -> Inicia correcao estatica infinita (Aperte qq tecla p/ sair)");
-  logMsg("INFO     -> Mostra Leitura (Angulo e Parede)");
-  logMsg("CALIBRAR -> Zera Gyro");
+  logMsg("--- Teste Principal ---");
+  logMsg("TESTE    -> Inicia correcao estatica Gyro + TOF (qq tecla p/ sair)");
+  logMsg("INFO     -> Leitura pontual (Yaw + distancia das paredes)");
+  logMsg("CALIBRAR -> Calibra o MPU e zera o Gyro (robo parado e plano)");
   logMsg("STOP     -> Para motores imediatamente");
-  logMsg("HELP     -> Mostra este menu");
+  logMsg("--- Leituras Continuas ---");
+  logMsg("TOF_ON   -> Liga leitura dos sensores de distancia (500ms)");
+  logMsg("TOF_OFF  -> Desliga leitura dos sensores");
+  logMsg("MPU_ON   -> Liga leitura do Giroscopio/Acelerometro");
+  logMsg("MPU_OFF  -> Desliga MPU");
+  logMsg("--- Encoders ---");
+  logMsg("ENC      -> Mostra contagem dos Encoders");
+  logMsg("ENC_ON   -> Liga impressao de velocidade dos Encoders");
+  logMsg("ENC_OFF  -> Desliga impressao de velocidade");
+  logMsg("ENC_RST  -> Zera a contagem dos Encoders (Para calibracao)");
+  logMsg("--- Ajuda ---");
+  logMsg("HELP ou ? -> Mostra este menu");
   logMsg("============================================");
 }
 
@@ -383,6 +417,27 @@ void executarComando(String cmd) {
   } else if (cmd == "STOP") {
     motors_stop_all();
     logMsg("Parado.");
+  } else if (cmd == "TOF_ON") {
+    leituraSensoresContinua = true;
+  } else if (cmd == "TOF_OFF") {
+    leituraSensoresContinua = false;
+  } else if (cmd == "MPU_ON") {
+    mpuAtivo = true;
+  } else if (cmd == "MPU_OFF") {
+    mpuAtivo = false;
+  } else if (cmd == "ENC") {
+    lerEncoders();
+  } else if (cmd == "ENC_ON") {
+    encAtivo = true;
+    lastEncEsq = encoder_esquerdo_get();
+    lastEncDir = encoder_direito_get();
+    lastEncTime = millis();
+  } else if (cmd == "ENC_OFF") {
+    encAtivo = false;
+  } else if (cmd == "ENC_RST") {
+    encoder_esquerdo_reset();
+    encoder_direito_reset();
+    logMsg("Encoders zerados com sucesso!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else {
@@ -467,4 +522,35 @@ void loop() {
     }
   }
 
+  // --- Leituras Contínuas ---
+  unsigned long tempoAtual = millis();
+  if (leituraSensoresContinua && tempoAtual - tempoAnteriorSensores >= 500) {
+    tempoAnteriorSensores = tempoAtual;
+    lerTOFs();
+  }
+
+  if (encAtivo && tempoAtual - lastEncTime >= 500) {
+    long curEsq = encoder_esquerdo_get();
+    long curDir = encoder_direito_get();
+
+    // Calcula a variação (ticks por segundo)
+    long deltaT = tempoAtual - lastEncTime;
+    long varEsq = (curEsq - lastEncEsq) * 1000 / deltaT;
+    long varDir = (curDir - lastEncDir) * 1000 / deltaT;
+
+    lastEncEsq = curEsq;
+    lastEncDir = curDir;
+    lastEncTime = tempoAtual;
+
+    char buf[120];
+    sprintf(buf, "ENC VELOCIDADE | Esq: %ld ticks/s | Dir: %ld ticks/s", varEsq, varDir);
+    logMsg(String(buf));
+  }
+
+  if (mpuAtivo) {
+    lerMPU();
+    delay(100); // delay para nao floodar tanto a tela
+  } else {
+    mpuDadosProntos = false; // descarta se nao ativo
+  }
 }

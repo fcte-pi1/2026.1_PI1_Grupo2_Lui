@@ -36,6 +36,8 @@ ToFSensorReading lerTodosSensores();
 
 
 void atualizar_filtro_media();
+uint16_t distancia_direita_mm();   // Média filtrada do sensor direito (mm)
+uint16_t distancia_esquerda_mm();  // Média filtrada do sensor esquerdo (mm)
 bool tem_parede_esquerda();
 bool tem_parede_frente();
 bool tem_parede_direita();

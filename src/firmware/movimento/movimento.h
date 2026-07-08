@@ -13,10 +13,17 @@
 
 #define TIMEOUT_MS           3000
 
+#define DIST_MIN_DIREITA_MM  50    // Distância mínima da parede direita
+#define DIST_MIN_ESQUERDA_MM 50    // Distância mínima da parede esquerda
+#define VEL_AJUSTE           100   // Velocidade do giro de ajuste
+
 void mover_frente_celula();   // Anda exatamente 180 mm
 void mover_tras_celula();     // Recua exatamente 180 mm
 void girar_esquerda_90();     // Gira 90° no próprio eixo
 void girar_direita_90();      // Gira 90° no próprio eixo
+void girar_180();             // Meia-volta no próprio eixo
+void ajuste_parede_direita();  // Se dir < 50 mm, gira à esquerda até dir >= 50 mm
+void ajuste_parede_esquerda(); // Se esq < 50 mm, gira à direita até esq >= 50 mm
 
 void mover_frente(int velocidade, unsigned long tempo_ms);
 void mover_tras(int velocidade, unsigned long tempo_ms);

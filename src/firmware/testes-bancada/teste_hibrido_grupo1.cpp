@@ -41,6 +41,9 @@
 // --- Globais ---
 BluetoothSerial SerialBT;
 
+String comandoBT = "";
+String comandoSerial = "";
+
 float offsetGiroZ_dps = 0.0f;          
 float anguloAcumulado_deg = 0.0f;      
 unsigned long ultimaAtualizacao_us = 0;
@@ -317,13 +320,40 @@ void mostrarMenu() {
     SerialBT.println("=========================================");
     SerialBT.println("SISTEMA HIBRIDO PRONTO (Odometria + MPU)");
     SerialBT.println("Comandos Bluetooth:");
-    SerialBT.println(" 'w' - Andar frente (1 celula - 180mm)");
-    SerialBT.println(" 's' - Andar tras (1 celula - 180mm)");
-    SerialBT.println(" 'a' - Girar esquerda");
-    SerialBT.println(" 'd' - Girar direita");
-    SerialBT.println(" 'q' - Parar motores");
-    SerialBT.println(" 'h' - Mostrar este menu");
+    SerialBT.println(" W    - Andar frente (1 celula - 180mm)");
+    SerialBT.println(" S    - Andar tras (1 celula - 180mm)");
+    SerialBT.println(" A    - Girar esquerda");
+    SerialBT.println(" D    - Girar direita");
+    SerialBT.println(" Q    - Parar motores");
+    SerialBT.println(" HELP - Mostrar este menu");
     SerialBT.println("=========================================");
+}
+
+void executarComando(String cmd) {
+  cmd.trim();
+  cmd.toUpperCase();
+  if (cmd.length() == 0) return;
+  
+  SerialBT.println(">> Comando: " + cmd);
+  Serial.println(">> Comando: " + cmd);
+
+  if (cmd == "W") {
+    navAndarUmaCelula(false);
+  } else if (cmd == "S") {
+    navAndarUmaCelula(true);
+  } else if (cmd == "A") {
+    girar(90.0);
+  } else if (cmd == "D") {
+    girar(-90.0);
+  } else if (cmd == "Q") {
+    motor_esquerdo_set(0);
+    motor_direito_set(0);
+    SerialBT.println("PARADA DE EMERGENCIA");
+  } else if (cmd == "HELP") {
+    mostrarMenu();
+  } else {
+    SerialBT.println("Comando desconhecido. Digite HELP.");
+  }
 }
 
 void setup() {
@@ -340,34 +370,26 @@ void setup() {
 }
 
 void loop() {
-    mpu_update();
-    
-    if (SerialBT.available()) {
-        char cmd = SerialBT.read();
-        
-        switch (cmd) {
-            case 'w':
-                navAndarUmaCelula(false);
-                break;
-            case 's':
-                navAndarUmaCelula(true); 
-                break;
-            case 'a':
-                girar(90.0); 
-                break;
-            case 'd':
-                girar(-90.0); 
-                break;
-            case 'q':
-                motor_esquerdo_set(0);
-                motor_direito_set(0);
-                SerialBT.println("PARADA DE EMERGENCIA");
-                break;
-            case 'h':
-                mostrarMenu();
-                break;
-        }
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (comandoSerial.length() > 0) executarComando(comandoSerial);
+      comandoSerial = "";
+    } else {
+      comandoSerial += c;
     }
-    
-    delay(10);
+  }
+  
+  while (SerialBT.available()) {
+    char c = SerialBT.read();
+    if (c == '\n' || c == '\r') {
+      if (comandoBT.length() > 0) executarComando(comandoBT);
+      comandoBT = "";
+    } else {
+      comandoBT += c;
+    }
+  }
+  
+  mpu_update();
+  delay(10);
 }

@@ -106,6 +106,30 @@ void lerMPU() {
   }
 }
 
+// --- Integracao do Yaw (mesma logica do teste_giroscopio_parede) ---
+float anguloZ = 0.0f;
+unsigned long ultimoTempoGiro = 0;
+
+void atualizarGiroscopio() {
+  Wire.beginTransmission(MPU6500_ADDR);
+  Wire.write(0x47); // REG_GYRO_ZOUT_H
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint16_t)MPU6500_ADDR, (uint8_t)2);
+
+  if (Wire.available() >= 2) {
+    int16_t gzRaw = (Wire.read() << 8) | Wire.read();
+    float gz = (gzRaw - mpuOffsetGiroZ) / 131.0f;
+
+    unsigned long agora = millis();
+    float dt = (agora - ultimoTempoGiro) / 1000.0f;
+    ultimoTempoGiro = agora;
+
+    if (abs(gz) > 1.0f) {
+      anguloZ += gz * dt;
+    }
+  }
+}
+
 // --- Dummy motor functions removidas (usando motors.h e movimento.h agora) ---
 
 // --- Filtro TOF (Média Móvel Exponencial - EMA) ---
@@ -238,8 +262,9 @@ void testeDistanciaParede() {
   }
 }
 
-// --- Teste Ajuste Parede (gira ate afastar) ---
-#define TIMEOUT_AJUSTE_MS 3000  // seguranca: para de girar apos 3s
+// --- Teste Ajuste Parede (gira ate afastar, limitado pelo giroscopio) ---
+#define TIMEOUT_AJUSTE_MS 3000     // seguranca: para de girar apos 3s
+#define ANGULO_MAX_AJUSTE 45.0f    // graus: nao gira mais que isso
 
 void testeAjusteParede() {
   int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
@@ -252,30 +277,44 @@ void testeAjusteParede() {
   if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
     // Perto da parede esquerda -> gira pra direita ate passar de 30mm
     logMsg("Parede esquerda < 30mm! Girando pra direita ate afastar...");
+    anguloZ = 0.0f;
+    ultimoTempoGiro = millis();
     motor_esquerdo_set(VEL_GIRO / 2);
     motor_direito_set(-(VEL_GIRO / 2));
     unsigned long inicio = millis();
     while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
+      atualizarGiroscopio();
+      if (abs(anguloZ) >= ANGULO_MAX_AJUSTE) {
+        logMsg("Limite de angulo atingido!");
+        break;
+      }
       distEsq = sensor1.readRangeContinuousMillimeters() - 23;
       if (distEsq >= DIST_MIN_PAREDE_MM) break;
       delay(10);
     }
     motors_stop_all();
-    sprintf(buf, "Ajustado! Esq: %d mm", distEsq);
+    sprintf(buf, "Ajustado! Esq: %d mm | Girou: %.1f graus", distEsq, abs(anguloZ));
     logMsg(String(buf));
   } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
     // Perto da parede direita -> gira pra esquerda ate passar de 30mm
     logMsg("Parede direita < 30mm! Girando pra esquerda ate afastar...");
+    anguloZ = 0.0f;
+    ultimoTempoGiro = millis();
     motor_esquerdo_set(-(VEL_GIRO / 2));
     motor_direito_set(VEL_GIRO / 2);
     unsigned long inicio = millis();
     while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
+      atualizarGiroscopio();
+      if (abs(anguloZ) >= ANGULO_MAX_AJUSTE) {
+        logMsg("Limite de angulo atingido!");
+        break;
+      }
       distDir = sensor3.readRangeContinuousMillimeters() - 37;
       if (distDir >= DIST_MIN_PAREDE_MM) break;
       delay(10);
     }
     motors_stop_all();
-    sprintf(buf, "Ajustado! Dir: %d mm", distDir);
+    sprintf(buf, "Ajustado! Dir: %d mm | Girou: %.1f graus", distDir, abs(anguloZ));
     logMsg(String(buf));
   } else {
     logMsg("Distancia OK, nenhum ajuste necessario.");

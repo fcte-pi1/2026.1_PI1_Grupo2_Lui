@@ -40,9 +40,10 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-// PWM do giro em DUTY DIRETO (0-255). 255 = torque cheio no cruzeiro; a
-// frenagem usa metade disso (PWM/2). Ajustavel em runtime pelo comando PWM.
-#define VEL_GIRO_PWM_PADRAO 255 // duty PWM do giro no cruzeiro (0-255)
+// PWM do giro em DUTY DIRETO (0-255). Ajustavel em runtime pelo comando PWM.
+// 200 e um bom compromisso entre velocidade e controle; 255 causa overshoot
+// excessivo porque a inercia do robo nao freia a tempo.
+#define VEL_GIRO_PWM_PADRAO 200 // duty PWM do giro no cruzeiro (0-255)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -51,19 +52,37 @@
 // Intervalo entre atualizacoes de rumo no modo BUSSOLA (streaming)
 #define BUSSOLA_PERIODO_MS 200
 
-// --- Parametros do giro (mesma logica do movimento.cpp) ---
+// --- Parametros do giro PROPORCIONAL (3 fases) ---
 #define PASSO_GIRO_GRAUS      90.0f  // cada GIR_D/GIR_E soma/subtrai isso no alvo
-#define ZONA_FRENAGEM_GRAUS   20.0f  // ultimos X graus: reduz a velocidade a metade
-#define MARGEM_PARADA_GRAUS    2.0f  // dentro desta margem consideramos "no alvo"
-#define TIMEOUT_GIRO_MS       4000   // seguranca
+#define MARGEM_PARADA_GRAUS    1.5f  // margem final: abaixo disso = no alvo (graus)
+#define TIMEOUT_GIRO_MS       5000   // seguranca
 
-// --- Correcao de overshoot (malha fechada apos a freada) ---
-// Depois do giro rapido, o embalo (inercia) joga o robo alguns graus alem do
-// alvo. Estes parametros controlam o ajuste fino que traz o rumo de volta.
-#define VEL_CORRECAO_PWM       150   // duty PWM (baixo) do ajuste fino
-#define ASSENTAMENTO_MS        150   // tempo parado p/ a inercia terminar antes de medir
-#define PULSO_CORRECAO_MS       80   // duracao de cada pulso de correcao
-#define MAX_PULSOS_CORRECAO      8   // seguranca: no. maximo de pulsos
+// Fase 1 — Desaceleracao proporcional por zonas:
+// O PWM cai progressivamente conforme se aproxima do alvo.
+// Zona 1: >40 graus faltando -> PWM cheio (cruzeiro)
+// Zona 2: 40~20 graus        -> 60% do PWM
+// Zona 3: 20~8 graus         -> 40% do PWM
+// Zona 4: 8~CORTE graus      -> 25% do PWM (velocidade minima controlavel)
+#define ZONA1_GRAUS           40.0f  // acima disso: cruzeiro (100%)
+#define ZONA2_GRAUS           20.0f  // acima disso: 60%
+#define ZONA3_GRAUS            8.0f  // acima disso: 40%
+// Abaixo de ZONA3 ate o corte: 25%
+
+// Corte antecipado: para o motor ANTES do alvo. A inercia carrega o robo
+// os graus restantes. Ajuste este valor experimentalmente:
+// - Se o robo PARA ANTES do alvo: diminua.
+// - Se o robo PASSA DO alvo: aumente.
+#define CORTE_ANTECIPADO_GRAUS 3.0f  // graus antes do alvo p/ cortar o motor
+
+// Fase 2 — Correcao de overshoot (malha fechada proporcional):
+// PWM proporcional ao erro: quanto mais longe, mais forte o pulso.
+// Formula: pwm = max(PWM_MIN, min(PWM_MAX, erro * GANHO))
+#define CORRECAO_PWM_MIN       80   // duty minimo pra vencer a friccao estatica
+#define CORRECAO_PWM_MAX      150   // duty maximo da correcao (nao quer overshoot)
+#define CORRECAO_GANHO        12.0f // ganho proporcional: pwm = erro_graus * GANHO
+#define ASSENTAMENTO_MS       200   // tempo parado p/ a inercia terminar antes de medir
+#define PULSO_CORRECAO_MS     100   // duracao maxima de cada pulso de correcao
+#define MAX_PULSOS_CORRECAO    10   // seguranca: no. maximo de pulsos
 
 // --- Variaveis Globais ---
 BluetoothSerial SerialBT;
@@ -248,57 +267,90 @@ void assentarInercia(unsigned long ms) {
   }
 }
 
+// --- Calcula o PWM proporcional a distancia que falta (Fase 1) ---------------
+// Retorna um valor de PWM entre ~25% e 100% do pwmGiro, conforme a zona.
+int pwmProporcional(float falta) {
+  if (falta > ZONA1_GRAUS)  return pwmGiro;                        // 100% cruzeiro
+  if (falta > ZONA2_GRAUS)  return (int)(pwmGiro * 0.60f);         // 60%
+  if (falta > ZONA3_GRAUS)  return (int)(pwmGiro * 0.40f);         // 40%
+  return (int)(pwmGiro * 0.25f);                                   // 25% minimo
+}
+
 // --- Gira ate a bussola bater no ALVO ABSOLUTO acumulado (alvoRumo_deg) -----
-// Mesma logica do girar_com_giroscopio (movimento.cpp): liga o motor na
-// velocidade cheia (VEL_GIRO) e reduz pela metade na zona de frenagem. So que
-// o criterio de parada e o rumo ABSOLUTO da bussola chegar no alvo (grade de
-// 90 graus). Assim os giros sao ACUMULADOS e o drift e corrigido a cada giro.
+// CONTROLE PROPORCIONAL EM 3 FASES:
+//
+// Fase 1 (Cruzeiro + Desaceleracao proporcional):
+//   O PWM diminui conforme se aproxima do alvo, em 4 zonas. Isso reduz a
+//   energia cinetica gradualmente, minimizando o overshoot.
+//
+// Fase 1b (Corte antecipado por inercia):
+//   O motor e cortado CORTE_ANTECIPADO_GRAUS ANTES do alvo. A inercia do
+//   robo carrega os graus restantes. Assim a parada cai perto do alvo.
+//
+// Fase 2 (Ajuste fino proporcional):
+//   Apos assentar, mede o erro real. Se ainda estiver fora da margem,
+//   aplica pulsos curtos com PWM PROPORCIONAL ao erro (quanto menor o
+//   erro, menor a forca), evitando oscilacao.
 void girarParaAlvo(float alvo, bool paraDireita) {
   int sinal_esq = paraDireita ? +1 : -1;   // mesmos sentidos do movimento.cpp
   int sinal_dir = paraDireita ? -1 : +1;
 
-  motorEsquerdoSet(sinal_esq * pwmGiro);
-  motorDireitoSet(sinal_dir * pwmGiro);
-
   unsigned long inicio = millis();
-  bool freando = false;
+  int pwmAtual = pwmGiro;
 
+  motorEsquerdoSet(sinal_esq * pwmAtual);
+  motorDireitoSet(sinal_dir * pwmAtual);
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 1: Desaceleracao proporcional por zonas + corte antecipado
+  // ══════════════════════════════════════════════════════════════════════
   while (true) {
     atualizarBussola();
     float falta = faltaParaAlvo(alvo, paraDireita);
 
-    // Chegou (com margem: a inercia completa o resto)
-    if (falta <= MARGEM_PARADA_GRAUS) break;
-    // Passou do ponto: a falta "da a volta" (>180) -> para pra nao girar de novo
+    // Corte antecipado: para o motor ANTES do alvo pra inercia completar
+    if (falta <= CORTE_ANTECIPADO_GRAUS) break;
+    // Passou do ponto: a falta "da a volta" (>180) -> para imediatamente
     if (falta > 180.0f) break;
-    if (millis() - inicio > TIMEOUT_GIRO_MS) break;
+    if (millis() - inicio > TIMEOUT_GIRO_MS) {
+      logMsg("[GIRO] TIMEOUT na Fase 1!");
+      break;
+    }
 
-    // Perto do alvo, reduz o PWM pela metade pra nao passar do ponto
-    if (!freando && falta <= ZONA_FRENAGEM_GRAUS) {
-      freando = true;
-      motorEsquerdoSet(sinal_esq * (pwmGiro / 2));
-      motorDireitoSet(sinal_dir * (pwmGiro / 2));
+    // Atualiza o PWM proporcionalmente a distancia restante
+    int novoPwm = pwmProporcional(falta);
+    if (novoPwm != pwmAtual) {
+      pwmAtual = novoPwm;
+      motorEsquerdoSet(sinal_esq * pwmAtual);
+      motorDireitoSet(sinal_dir * pwmAtual);
     }
     delay(2);
   }
   motoresParar();
 
-  // --- Fase 2: correcao de overshoot (malha fechada) ------------------------
-  // A freada acima deixa a inercia "completar o resto", mas em velocidade alta
-  // esse resto passa MUITO do alvo. Aqui deixamos assentar, medimos o erro real
-  // pela bussola e corrigimos em pulsos curtos e lentos ate cair na margem.
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 2: Correcao de overshoot (malha fechada PROPORCIONAL)
+  // ══════════════════════════════════════════════════════════════════════
+  // Apos a freada, a inercia pode ter jogado o robo alguns graus alem (ou
+  // aquem). Esperamos assentar, medimos o erro real e corrigimos com
+  // pulsos curtos e PWM proporcional ao erro.
   for (int pulso = 0; pulso < MAX_PULSOS_CORRECAO; pulso++) {
     assentarInercia(ASSENTAMENTO_MS);       // espera parar de vez e atualiza o rumo
 
     float erro = erroParaAlvo(alvo);
-    if (fabsf(erro) <= MARGEM_PARADA_GRAUS) break;  // ja esta no alvo
+    float erroAbs = fabsf(erro);
+    if (erroAbs <= MARGEM_PARADA_GRAUS) break;  // ja esta no alvo!
+
+    // PWM proporcional ao erro: pouco erro -> pouca forca
+    int pwmCorrecao = (int)(erroAbs * CORRECAO_GANHO);
+    pwmCorrecao = constrain(pwmCorrecao, CORRECAO_PWM_MIN, CORRECAO_PWM_MAX);
 
     // Gira no sentido que REDUZ o erro (independe do sentido do giro original)
     bool corrigirEsq = (erro > 0.0f);       // erro>0 -> aumentar rumo -> esquerda
     int se = corrigirEsq ? -1 : +1;
     int sd = corrigirEsq ? +1 : -1;
-    motorEsquerdoSet(se * VEL_CORRECAO_PWM);
-    motorDireitoSet(sd * VEL_CORRECAO_PWM);
+    motorEsquerdoSet(se * pwmCorrecao);
+    motorDireitoSet(sd * pwmCorrecao);
 
     // Pulso curto: corta assim que entrar na margem pra nao passar de novo
     unsigned long tPulso = millis();
@@ -311,9 +363,11 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   }
   assentarInercia(ASSENTAMENTO_MS);         // assenta e mede o resultado final
 
-  char buf[80];
-  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f | Erro: %.1f",
-          alvo, rumo_deg, erroParaAlvo(alvo));
+  char buf[100];
+  float erroFinal = erroParaAlvo(alvo);
+  sprintf(buf, "Giro OK! Alvo:%.0f | Rumo:%.1f | Erro:%.1f | %s",
+          alvo, rumo_deg, erroFinal,
+          (fabsf(erroFinal) <= MARGEM_PARADA_GRAUS) ? "PRECISO" : "FORA DA MARGEM");
   logMsg(String(buf));
 }
 

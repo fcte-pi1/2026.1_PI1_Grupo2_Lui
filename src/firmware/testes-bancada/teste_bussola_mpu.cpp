@@ -49,15 +49,10 @@
 // Intervalo entre atualizacoes de rumo no modo BUSSOLA (streaming)
 #define BUSSOLA_PERIODO_MS 200
 
-// --- Parametros do giro (GIR_D / GIR_E) ---
-// Alvos no rumo da bussola: pra DIREITA o robo gira ate ~270, pra ESQUERDA
-// ate ~90 (a partir do norte em 0). Confirmado no teste_giro_90_mpu.cpp:
-// nesta placa girar pra direita DIMINUI o rumo (horario) e pra esquerda AUMENTA.
-#define ALVO_DIREITA   270.0f
-#define ALVO_ESQUERDA   90.0f
-#define MARGEM_PARADA    5.0f   // para um pouco antes: a inercia completa o giro
-#define ZONA_FRENAGEM   20.0f   // nos ultimos X graus, reduz a velocidade a metade
-#define TIMEOUT_GIRO_MS  4000   // seguranca
+// --- Parametros do giro (mesma logica do movimento.cpp) ---
+#define ANGULO_GIRO_90_GRAUS  90.0f  // alvo do giro (graus, relativo)
+#define ZONA_FRENAGEM_GRAUS   20.0f  // ultimos X graus: reduz velocidade a metade
+#define TIMEOUT_GIRO_MS       4000   // seguranca
 
 // --- Variaveis Globais ---
 BluetoothSerial SerialBT;
@@ -112,6 +107,7 @@ void motorDireitoSet(int velocidade) {
 
 void motoresParar() {
   // Brake ativo: ambos os pinos em HIGH -> DRV8833 trava o motor
+  // (igual ao motors_stop_all usado pelo movimento.cpp)
   ledcWrite(CH_MOT1_IN1, 255);
   ledcWrite(CH_MOT1_IN2, 255);
   ledcWrite(CH_MOT2_IN1, 255);
@@ -210,55 +206,55 @@ void mostrarRumo() {
   logMsg(String(buf));
 }
 
-// --- Quanto ainda falta girar (graus) ate o alvo, no sentido do giro ---
-// paraDireita = true: o rumo DIMINUI (horario nesta placa); a "falta" comeca
-// perto de 90 e cai ate 0 conforme o rumo se aproxima do alvo (ex.: 270).
-float faltaParaAlvo(float alvo, bool paraDireita) {
-  if (paraDireita) return normalizar360(rumo_deg - alvo);
-  else             return normalizar360(alvo - rumo_deg);
-}
+// --- Gira no proprio eixo ate a bussola acusar o angulo alvo ---------------
+// Mesma logica do girar_com_giroscopio (movimento.cpp): zera, gira, mede o
+// angulo relativo e freia nos ultimos graus. So que aqui o angulo vem da
+// BUSSOLA (rumo_deg): acumulamos a variacao do rumo a cada passo, desfazendo
+// o salto 0<->360, pra ter o quanto o robo girou desde o inicio da manobra.
+void girarComBussola(int velocidade_esq, int velocidade_dir, float alvo_graus) {
+  atualizarBussola();               // referencia de rumo antes de girar
+  float rumoAnterior = rumo_deg;
+  float giradoTotal = 0.0f;         // angulo relativo acumulado (equivale ao mpu_get_angulo)
 
-// --- Giro fechado no rumo da bussola ---
-// paraDireita = true  -> gira ate ~ALVO_DIREITA (270)
-// paraDireita = false -> gira ate ~ALVO_ESQUERDA (90)
-void girarParaRumo(bool paraDireita) {
-  float alvo = paraDireita ? ALVO_DIREITA : ALVO_ESQUERDA;
-  char buf[80];
-  sprintf(buf, paraDireita ? "Girando pra DIREITA ate ~%.0f graus..."
-                           : "Girando pra ESQUERDA ate ~%.0f graus...", alvo);
-  logMsg(String(buf));
-
-  int vel = VEL_GIRO / 2;
-  // Mesmo sentido do movimento.cpp: direita = esq p/ frente, dir p/ tras
-  motorEsquerdoSet(paraDireita ? vel : -vel);
-  motorDireitoSet(paraDireita ? -vel : vel);
+  motorEsquerdoSet(velocidade_esq);
+  motorDireitoSet(velocidade_dir);
 
   unsigned long inicio = millis();
   bool freando = false;
-  while (millis() - inicio < TIMEOUT_GIRO_MS) {
-    atualizarBussola();
-    float falta = faltaParaAlvo(alvo, paraDireita);
 
-    // Para com margem: a inercia completa o restante do giro
-    if (falta <= MARGEM_PARADA) break;
+  while (true) {
+    atualizarBussola();
+
+    // Variacao do rumo desde o ultimo passo, corrigindo o wrap de 0/360
+    float d = rumo_deg - rumoAnterior;
+    if (d > 180.0f) d -= 360.0f;
+    else if (d < -180.0f) d += 360.0f;
+    giradoTotal += d;
+    rumoAnterior = rumo_deg;
+
+    float atual_graus = fabsf(giradoTotal);
+    if (atual_graus >= alvo_graus) break;
+    if (millis() - inicio > TIMEOUT_GIRO_MS) break;
 
     // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
-    if (!freando && falta <= ZONA_FRENAGEM) {
+    if (!freando && atual_graus >= alvo_graus - ZONA_FRENAGEM_GRAUS) {
       freando = true;
-      motorEsquerdoSet(paraDireita ? vel / 2 : -vel / 2);
-      motorDireitoSet(paraDireita ? -vel / 2 : vel / 2);
+      motorEsquerdoSet(velocidade_esq / 2);
+      motorDireitoSet(velocidade_dir / 2);
     }
-    delayMicroseconds(500);
+    delay(2);
   }
   motoresParar();
 
-  // Deixa o robo assentar e mede o rumo final real
-  delay(300);
-  for (int i = 0; i < 50; i++) { atualizarBussola(); delay(2); }
-
-  sprintf(buf, "Giro concluido! Rumo final: %.1f graus", rumo_deg);
+  char buf[80];
+  sprintf(buf, "Giro concluido! Girou %.1f graus | Rumo agora: %.1f",
+          fabsf(giradoTotal), rumo_deg);
   logMsg(String(buf));
 }
+
+// Mesmos sentidos do movimento.cpp
+void girarDireita90()  { girarComBussola(VEL_GIRO, -VEL_GIRO, ANGULO_GIRO_90_GRAUS); }
+void girarEsquerda90() { girarComBussola(-VEL_GIRO, VEL_GIRO, ANGULO_GIRO_90_GRAUS); }
 
 // --- Menu ---
 void mostrarMenu() {
@@ -266,8 +262,8 @@ void mostrarMenu() {
   logMsg("MENU DE COMANDOS:");
   logMsg("NORTE    -> Define o rumo atual como Norte (zera)");
   logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
-  logMsg("GIR_D    -> Gira pra Direita ate o rumo ~270 graus");
-  logMsg("GIR_E    -> Gira pra Esquerda ate o rumo ~90 graus");
+  logMsg("GIR_D    -> Gira 90 graus pra Direita (mede pela bussola)");
+  logMsg("GIR_E    -> Gira 90 graus pra Esquerda (mede pela bussola)");
   logMsg("BUS_ON   -> Liga o streaming continuo do rumo (200ms)");
   logMsg("BUS_OFF  -> Desliga o streaming continuo do rumo");
   logMsg("CALIBRAR -> Recalibra o offset do gyro (robo parado)");
@@ -287,9 +283,11 @@ void executarComando(String cmd) {
   } else if (cmd == "RUMO") {
     mostrarRumo();
   } else if (cmd == "GIR_D") {
-    girarParaRumo(true);
+    logMsg("Girando 90 graus pra DIREITA...");
+    girarDireita90();
   } else if (cmd == "GIR_E") {
-    girarParaRumo(false);
+    logMsg("Girando 90 graus pra ESQUERDA...");
+    girarEsquerda90();
   } else if (cmd == "BUS_ON") {
     bussolaStreaming = true;
     logMsg("Streaming da bussola LIGADO.");

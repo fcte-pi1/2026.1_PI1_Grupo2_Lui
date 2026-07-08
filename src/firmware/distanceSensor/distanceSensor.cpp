@@ -161,6 +161,14 @@ static uint16_t calcularMedia(uint16_t* buffer) {
     return (uint16_t)(soma / maxIt);
 }
 
+uint16_t distancia_direita_mm() {
+    return calcularMedia(bufferDir);
+}
+
+uint16_t distancia_esquerda_mm() {
+    return calcularMedia(bufferEsq);
+}
+
 bool tem_parede_esquerda() {
     return calcularMedia(bufferEsq) < LIMITE_PAREDE;
 }

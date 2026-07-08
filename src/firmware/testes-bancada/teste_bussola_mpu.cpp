@@ -40,9 +40,10 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-// OBS: motorSet limita a -100..100. VEL_GIRO=105 satura em 100% no cruzeiro,
-// mas garante torque de sobra pra girar ate os graus (metade na frenagem = ~52%).
-#define VEL_GIRO 105 // % velocidade do giro (mais alto = mais torque/rapido)
+// Valor BRUTO igual ao movimento.h/teste_geral: VEL_GIRO = 120. O motorSet
+// satura em 100 na hora de aplicar, entao 120 = torque cheio no cruzeiro e
+// ~60 (120/2) na frenagem. Ajustavel em runtime pelo comando VEL.
+#define VEL_GIRO_PADRAO 120 // valor bruto da velocidade do giro (igual teste_geral)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -66,6 +67,7 @@ String comandoSerial = "";
 float offsetGiroZ_dps = 0.0f;          // bias do gyro em graus/s
 float rumo_deg = 0.0f;                  // heading atual, normalizado 0-360
 float alvoRumo_deg = 0.0f;              // alvo ACUMULADO do giro (grade de 90), 0-360
+int   velGiro = VEL_GIRO_PADRAO;        // velocidade do giro (%), ajustavel via VEL
 unsigned long ultimaAtualizacao_us = 0;
 bool bussolaStreaming = false;          // modo BUSSOLA ligado?
 
@@ -228,8 +230,8 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   int sinal_esq = paraDireita ? +1 : -1;   // mesmos sentidos do movimento.cpp
   int sinal_dir = paraDireita ? -1 : +1;
 
-  motorEsquerdoSet(sinal_esq * VEL_GIRO);
-  motorDireitoSet(sinal_dir * VEL_GIRO);
+  motorEsquerdoSet(sinal_esq * velGiro);
+  motorDireitoSet(sinal_dir * velGiro);
 
   unsigned long inicio = millis();
   bool freando = false;
@@ -247,8 +249,8 @@ void girarParaAlvo(float alvo, bool paraDireita) {
     // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
     if (!freando && falta <= ZONA_FRENAGEM_GRAUS) {
       freando = true;
-      motorEsquerdoSet(sinal_esq * (VEL_GIRO / 2));
-      motorDireitoSet(sinal_dir * (VEL_GIRO / 2));
+      motorEsquerdoSet(sinal_esq * (velGiro / 2));
+      motorDireitoSet(sinal_dir * (velGiro / 2));
     }
     delay(2);
   }
@@ -277,6 +279,8 @@ void mostrarMenu() {
   logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
   logMsg("GIR_D    -> Gira 90 graus pra Direita (mede pela bussola)");
   logMsg("GIR_E    -> Gira 90 graus pra Esquerda (mede pela bussola)");
+  logMsg("VEL n    -> Ajusta a velocidade do giro (%). Ex.: VEL 80");
+  logMsg("VEL      -> Mostra a velocidade do giro atual");
   logMsg("BUS_ON   -> Liga o streaming continuo do rumo (200ms)");
   logMsg("BUS_OFF  -> Desliga o streaming continuo do rumo");
   logMsg("CALIBRAR -> Recalibra o offset do gyro (robo parado)");
@@ -301,6 +305,18 @@ void executarComando(String cmd) {
   } else if (cmd == "GIR_E") {
     logMsg("Girando 90 graus pra ESQUERDA...");
     girarEsquerda90();
+  } else if (cmd == "VEL" || cmd.startsWith("VEL ")) {
+    char buf[48];
+    if (cmd == "VEL") {
+      // sem argumento: so mostra a velocidade atual
+      sprintf(buf, "Velocidade do giro: %d%%", velGiro);
+      logMsg(String(buf));
+    } else {
+      int v = cmd.substring(4).toInt();          // texto depois de "VEL "
+      velGiro = constrain(v, 1, 120);            // valor bruto (motorSet satura em 100)
+      sprintf(buf, "Velocidade do giro ajustada para %d%%", velGiro);
+      logMsg(String(buf));
+    }
   } else if (cmd == "BUS_ON") {
     bussolaStreaming = true;
     logMsg("Streaming da bussola LIGADO.");

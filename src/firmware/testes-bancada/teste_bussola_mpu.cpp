@@ -109,6 +109,10 @@ unsigned long pulsoCorrecaoMs = 100;
 // Numero maximo de pulsos de correcao (seguranca)
 int maxPulsosCorrecao = 10;
 
+// Erro medido ao final da Fase 1 (antes da correcao). Usado pelo AUTOTUNE
+// para saber quanto a inercia contribuiu (positivo = passou, negativo = faltou).
+float erroFase1 = 0.0f;
+
 // --- Utilitarias ---
 void logMsg(String msg) {
   Serial.println(msg);
@@ -357,41 +361,66 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   }
   motoresParar();
 
-  // ══════════════════════════════════════════════════════════════════════
-  // FASE 2: Correcao de overshoot (malha fechada PROPORCIONAL)
-  // ══════════════════════════════════════════════════════════════════════
-  for (int pulso = 0; pulso < maxPulsosCorrecao; pulso++) {
-    assentarInerciaDefault();
+  // Mede o erro da Fase 1 (antes da correcao) — usado pelo AUTOTUNE
+  assentarInerciaDefault();
+  erroFase1 = erroParaAlvo(alvo);
 
+  {
+    char b[80];
+    sprintf(b, "[F1] Erro pos-inercia: %.1f graus", erroFase1);
+    logMsg(String(b));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // FASE 2: P-CONTROLLER CONTINUO (substitui os pulsos fixos)
+  // ══════════════════════════════════════════════════════════════════════
+  // Roda em loop continuo: le o erro, calcula o PWM proporcional, aplica.
+  // Quando o erro fica dentro da margem por TEMPO_ESTAVEL_MS seguidos,
+  // considera convergido e para. Timeout de seguranca de 5 segundos.
+  const unsigned long TIMEOUT_CORRECAO_MS = 5000;
+  const unsigned long TEMPO_ESTAVEL_MS = 150;  // precisa ficar estavel por 150ms
+
+  unsigned long inicioCorrecao = millis();
+  unsigned long dentroMargem_desde = 0;
+  bool convergiu = false;
+
+  while (millis() - inicioCorrecao < TIMEOUT_CORRECAO_MS) {
+    atualizarBussola();
     float erro = erroParaAlvo(alvo);
     float erroAbs = fabsf(erro);
-    if (erroAbs <= margemParadaGraus) break;
 
-    // PWM proporcional ao erro: pouco erro -> pouca forca
-    int pwmCorrecao = (int)(erroAbs * correcaoGanho);
-    pwmCorrecao = constrain(pwmCorrecao, correcaoPwmMin, correcaoPwmMax);
+    // Dentro da margem? Conta tempo estavel
+    if (erroAbs <= margemParadaGraus) {
+      motoresParar();
+      if (dentroMargem_desde == 0) dentroMargem_desde = millis();
+      if (millis() - dentroMargem_desde >= TEMPO_ESTAVEL_MS) {
+        convergiu = true;
+        break;
+      }
+    } else {
+      dentroMargem_desde = 0;  // saiu da margem, reseta o contador
 
-    bool corrigirEsq = (erro > 0.0f);
-    int se = corrigirEsq ? -1 : +1;
-    int sd = corrigirEsq ? +1 : -1;
-    motorEsquerdoSet(se * pwmCorrecao);
-    motorDireitoSet(sd * pwmCorrecao);
+      // PWM proporcional ao erro
+      int pwmCorrecao = (int)(erroAbs * correcaoGanho);
+      pwmCorrecao = constrain(pwmCorrecao, correcaoPwmMin, correcaoPwmMax);
 
-    unsigned long tPulso = millis();
-    while (millis() - tPulso < pulsoCorrecaoMs) {
-      atualizarBussola();
-      if (fabsf(erroParaAlvo(alvo)) <= margemParadaGraus) break;
-      delay(2);
+      // Gira no sentido que reduz o erro
+      bool corrigirEsq = (erro > 0.0f);
+      int se = corrigirEsq ? -1 : +1;
+      int sd = corrigirEsq ? +1 : -1;
+      motorEsquerdoSet(se * pwmCorrecao);
+      motorDireitoSet(sd * pwmCorrecao);
     }
-    motoresParar();
+    delay(2);
   }
+  motoresParar();
   assentarInerciaDefault();
 
-  char buf[100];
+  char buf[120];
   float erroFinal = erroParaAlvo(alvo);
-  sprintf(buf, "Giro OK! Alvo:%.0f | Rumo:%.1f | Erro:%.1f | %s",
-          alvo, rumo_deg, erroFinal,
-          (fabsf(erroFinal) <= margemParadaGraus) ? "PRECISO" : "FORA DA MARGEM");
+  sprintf(buf, "Giro %s! Alvo:%.0f | Rumo:%.1f | ErroF1:%.1f | ErroFinal:%.1f",
+          convergiu ? "OK" : "TIMEOUT",
+          alvo, rumo_deg, erroFase1, erroFinal);
   logMsg(String(buf));
 }
 
@@ -507,6 +536,99 @@ int extrairInt(String cmd, int posEspaco) {
   return cmd.substring(posEspaco + 1).toInt();
 }
 
+// ==========================================================================
+// AUTOTUNE: Calibracao automatica do CORTE por busca binaria
+//
+// Algoritmo:
+//   1. Roda 2 giros de teste e mede o erro medio da FASE 1 (antes da
+//      correcao). Esse erro reflete diretamente o efeito da inercia.
+//   2. Se o erro e sistematico (mesmo sinal nos 2 giros):
+//      - Erro positivo (passou do alvo) -> AUMENTA o CORTE
+//      - Erro negativo (parou antes)    -> DIMINUI o CORTE
+//      O ajuste e proporcional: metade do erro medio.
+//   3. Repete ate o erro medio cair dentro da margem ou esgotar tentativas.
+//   4. Mostra os valores finais calibrados.
+//
+// Uso: AUTOTUNE     -> calibra pra direita (padrao)
+//      AUTOTUNE E   -> calibra pra esquerda
+// ==========================================================================
+void executarAutotune(bool paraDireita) {
+  char buf[120];
+  const int MAX_ITER = 6;       // maximo de iteracoes de busca
+  const int GIROS_POR_ITER = 2; // giros por iteracao (mais = mais preciso, mais lento)
+
+  sprintf(buf, "\n=== AUTOTUNE: calibrando CORTE pra %s ===",
+          paraDireita ? "DIREITA" : "ESQUERDA");
+  logMsg(String(buf));
+  sprintf(buf, "CORTE inicial: %.1f graus", corteAntecipadoGraus);
+  logMsg(String(buf));
+
+  for (int iter = 0; iter < MAX_ITER; iter++) {
+    sprintf(buf, "\n--- Iteracao %d/%d (CORTE=%.1f) ---", iter + 1, MAX_ITER, corteAntecipadoGraus);
+    logMsg(String(buf));
+
+    // Zera referencia
+    definirNorte();
+    delay(500);
+
+    // Roda giros de teste e coleta o erro da Fase 1
+    float somaErroF1 = 0.0f;
+    for (int g = 0; g < GIROS_POR_ITER; g++) {
+      if (paraDireita) {
+        girarDireita90();
+      } else {
+        girarEsquerda90();
+      }
+      somaErroF1 += erroFase1;  // erro SINALIZADO da fase 1
+
+      sprintf(buf, "  Giro %d: erro Fase1=%.1f  erro Final=%.1f",
+              g + 1, erroFase1, erroParaAlvo(alvoRumo_deg));
+      logMsg(String(buf));
+      delay(600);
+    }
+
+    float mediaErroF1 = somaErroF1 / GIROS_POR_ITER;
+    sprintf(buf, "  Media erro Fase1: %.2f graus", mediaErroF1);
+    logMsg(String(buf));
+
+    // Convergiu? O erro da Fase 1 esta dentro de uma margem aceitavel?
+    // Usamos 2x a margem de parada porque a Fase 2 corrige o resto.
+    if (fabsf(mediaErroF1) <= margemParadaGraus * 2.0f) {
+      logMsg("\n>>> CONVERGIU! Erro da Fase 1 dentro da tolerancia.");
+      break;
+    }
+
+    // Ajusta o CORTE: se o erro e negativo (passou do alvo na direcao
+    // do giro), o corte precisa ser MAIOR pra frear mais cedo.
+    // O sinal depende de como erroParaAlvo reporta:
+    //   paraDireita: rumo DIMINUI -> se passou, erro < 0 -> CORTE sobe
+    //   paraEsquerda: rumo AUMENTA -> se passou, erro > 0 -> CORTE sobe
+    // Simplificando: se o erro da F1 mostra overshoot, aumenta CORTE.
+    // Overshoot na F1 = o robo foi ALEM do alvo = |falta| virou negativa.
+    //
+    // Na pratica: mediaErroF1 negativo = passou do ponto pra direita
+    //              mediaErroF1 positivo = nao chegou (ou passou pra esquerda)
+    // Ajuste = metade do erro, na direcao oposta.
+    float ajuste = -mediaErroF1 * 0.5f;
+    float novoCorte = corteAntecipadoGraus + ajuste;
+    novoCorte = constrain(novoCorte, 0.0f, 30.0f);
+
+    sprintf(buf, "  Ajuste: %+.1f -> novo CORTE: %.1f", ajuste, novoCorte);
+    logMsg(String(buf));
+
+    corteAntecipadoGraus = novoCorte;
+  }
+
+  // Resultado final: roda um BENCH curto pra validar
+  logMsg("\n--- Validacao final (BENCH 4) ---");
+  executarBench(4, paraDireita);
+
+  logMsg("\n========== AUTOTUNE CONCLUIDO ==========");
+  mostrarParams();
+  logMsg("Anote estes valores se ficou bom!");
+  logMsg("========================================\n");
+}
+
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= BUSSOLA (GYRO MPU6500) =========");
@@ -520,6 +642,8 @@ void mostrarMenu() {
   logMsg("CALIBRAR -> Recalibra offset do gyro");
   logMsg("");
   logMsg("--- BANCADA (TUNAGEM) ---");
+  logMsg("AUTOTUNE   -> Calibra CORTE automaticamente (D)");
+  logMsg("AUTOTUNE E -> Calibra CORTE pra Esquerda");
   logMsg("BENCH      -> 4 giros D (volta completa)");
   logMsg("BENCH n    -> n giros pra Direita");
   logMsg("BENCH n E  -> n giros pra Esquerda");
@@ -554,6 +678,12 @@ void executarComando(String cmd) {
   } else if (cmd == "GIR_E") {
     logMsg("Girando 90 graus pra ESQUERDA...");
     girarEsquerda90();
+
+  // --- AUTOTUNE ---
+  } else if (cmd == "AUTOTUNE" || cmd.startsWith("AUTOTUNE ")) {
+    bool dir = true;
+    if (cmd.endsWith(" E")) dir = false;
+    executarAutotune(dir);
 
   // --- BENCH ---
   } else if (cmd == "BENCH" || cmd.startsWith("BENCH ")) {

@@ -158,6 +158,7 @@ class SerialBridge:
         if not isinstance(data, dict):
             logger.debug(f"[ESP32] {line}")
             return
+
         data["timestamp"] = _agora_iso()  # carimba a chegada
         self.packets_rx += 1
         self.last_packet_at = data["timestamp"]

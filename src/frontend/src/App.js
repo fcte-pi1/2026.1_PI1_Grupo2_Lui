@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Cpu, Wifi, Play, Pause, Bot, RotateCw, ChevronDown, Battery, Clock, Footprints, Gauge, RefreshCw, Zap, Timer, Download, CheckCircle2, XCircle, Calendar, Square, ChevronRight, Activity} from 'lucide-react';
+import BluetoothPanel from './BluetoothPanel';
 import { useMazeSimulator } from './useMazeSimulator';
 import { CELL_MM, DX as DXR, DY as DYR, mmToCell } from './utils/maze';
 import { useWebSocket } from './useWebSocket';
@@ -756,6 +757,8 @@ const App = () => {
             </div>
           ) : activeTab === 'Configurações' ? (
             <SettingsView wsUrl={wsUrl} setWsUrl={setWsUrl} wsStatus={wsStatus} refreshHistory={refreshHistory} />
+          ) : activeTab === 'Bluetooth' ? (
+            <div className="w-full h-full flex flex-col overflow-hidden min-h-0 bg-app-bg"><BluetoothPanel /></div>
           ) : (
             <>
               <section className="flex-grow bg-app-surface border-r border-border-rule p-5 flex flex-col relative overflow-hidden min-h-0">
@@ -786,7 +789,7 @@ const App = () => {
    CABEÇALHO
    ============================================================ */
 const Header = ({ activeTab, setActiveTab, wsStatus, sim, espStatus = 'idle', onConnectEsp }) => {
-  const tabs = ['Mapa', 'Telemetria', 'Histórico', 'Configurações'];
+  const tabs = ['Mapa', 'Telemetria', 'Histórico', 'Configurações', 'Bluetooth'];
 
   const btnConfig = {
     idle: { label: 'Conectar no ESP', icon: <Wifi size={14} />, cls: 'bg-brand-purple hover:bg-brand-purple-light text-white border-transparent' },

@@ -44,11 +44,13 @@ int converter_percentual_para_pwm(int percentual) {
 }
 
 void motor_esquerdo_set(int velocidade) {
-    motor_set(CH_MOT1_IN1, CH_MOT1_IN2, velocidade);
+    // Invertido via software: os fios da placa ficaram com polaridade trocada
+    motor_set(CH_MOT1_IN1, CH_MOT1_IN2, -velocidade);
 }
 
 void motor_direito_set(int velocidade) {
-    motor_set(CH_MOT2_IN1, CH_MOT2_IN2, velocidade);
+    // Invertido via software: os fios da placa ficaram com polaridade trocada
+    motor_set(CH_MOT2_IN1, CH_MOT2_IN2, -velocidade);
 }
 
 void motors_stop_all() {

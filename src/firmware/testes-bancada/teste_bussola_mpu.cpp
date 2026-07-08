@@ -40,10 +40,9 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-// Valor BRUTO igual ao movimento.h/teste_geral: VEL_GIRO = 120. O motorSet
-// satura em 100 na hora de aplicar, entao 120 = torque cheio no cruzeiro e
-// ~60 (120/2) na frenagem. Ajustavel em runtime pelo comando VEL.
-#define VEL_GIRO_PADRAO 120 // valor bruto da velocidade do giro (igual teste_geral)
+// PWM do giro em DUTY DIRETO (0-255). 255 = torque cheio no cruzeiro; a
+// frenagem usa metade disso (PWM/2). Ajustavel em runtime pelo comando PWM.
+#define VEL_GIRO_PWM_PADRAO 255 // duty PWM do giro no cruzeiro (0-255)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -61,7 +60,7 @@
 // --- Correcao de overshoot (malha fechada apos a freada) ---
 // Depois do giro rapido, o embalo (inercia) joga o robo alguns graus alem do
 // alvo. Estes parametros controlam o ajuste fino que traz o rumo de volta.
-#define VEL_CORRECAO_GIRO       60   // velocidade BRUTA (baixa) do ajuste fino
+#define VEL_CORRECAO_PWM       150   // duty PWM (baixo) do ajuste fino
 #define ASSENTAMENTO_MS        150   // tempo parado p/ a inercia terminar antes de medir
 #define PULSO_CORRECAO_MS       80   // duracao de cada pulso de correcao
 #define MAX_PULSOS_CORRECAO      8   // seguranca: no. maximo de pulsos
@@ -75,7 +74,7 @@ String comandoSerial = "";
 float offsetGiroZ_dps = 0.0f;          // bias do gyro em graus/s
 float rumo_deg = 0.0f;                  // heading atual, normalizado 0-360
 float alvoRumo_deg = 0.0f;              // alvo ACUMULADO do giro (grade de 90), 0-360
-int   velGiro = VEL_GIRO_PADRAO;        // velocidade do giro (%), ajustavel via VEL
+int   pwmGiro = VEL_GIRO_PWM_PADRAO;    // duty PWM do giro (0-255), ajustavel via PWM
 unsigned long ultimaAtualizacao_us = 0;
 bool bussolaStreaming = false;          // modo BUSSOLA ligado?
 
@@ -93,30 +92,30 @@ void escreverReg(uint8_t reg, uint8_t valor) {
 }
 
 // --- Motores (logica copiada de motors.cpp, sem include) ---
-void motorSet(uint8_t chFwd, uint8_t chBwd, int velocidade_percentual) {
-  velocidade_percentual = constrain(velocidade_percentual, -100, 100);
-  int pwm = map(abs(velocidade_percentual), 0, 100, 0, 255);
+void motorSet(uint8_t chFwd, uint8_t chBwd, int pwm) {
+  // pwm em DUTY DIRETO: -255..255 (sinal = sentido, modulo = duty)
+  pwm = constrain(pwm, -255, 255);
 
-  if (velocidade_percentual > 0) {
+  if (pwm > 0) {
     ledcWrite(chFwd, pwm);
     ledcWrite(chBwd, 0);
-  } else if (velocidade_percentual < 0) {
+  } else if (pwm < 0) {
     ledcWrite(chFwd, 0);
-    ledcWrite(chBwd, pwm);
+    ledcWrite(chBwd, -pwm);
   } else {
     ledcWrite(chFwd, 0);
     ledcWrite(chBwd, 0);
   }
 }
 
-void motorEsquerdoSet(int velocidade) {
+void motorEsquerdoSet(int pwm) {
   // Invertido via software: polaridade dos fios trocada na placa
-  motorSet(CH_MOT1_IN1, CH_MOT1_IN2, -velocidade);
+  motorSet(CH_MOT1_IN1, CH_MOT1_IN2, -pwm);
 }
 
-void motorDireitoSet(int velocidade) {
+void motorDireitoSet(int pwm) {
   // Invertido via software: polaridade dos fios trocada na placa
-  motorSet(CH_MOT2_IN1, CH_MOT2_IN2, -velocidade);
+  motorSet(CH_MOT2_IN1, CH_MOT2_IN2, -pwm);
 }
 
 void motoresParar() {
@@ -258,8 +257,8 @@ void girarParaAlvo(float alvo, bool paraDireita) {
   int sinal_esq = paraDireita ? +1 : -1;   // mesmos sentidos do movimento.cpp
   int sinal_dir = paraDireita ? -1 : +1;
 
-  motorEsquerdoSet(sinal_esq * velGiro);
-  motorDireitoSet(sinal_dir * velGiro);
+  motorEsquerdoSet(sinal_esq * pwmGiro);
+  motorDireitoSet(sinal_dir * pwmGiro);
 
   unsigned long inicio = millis();
   bool freando = false;
@@ -274,11 +273,11 @@ void girarParaAlvo(float alvo, bool paraDireita) {
     if (falta > 180.0f) break;
     if (millis() - inicio > TIMEOUT_GIRO_MS) break;
 
-    // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
+    // Perto do alvo, reduz o PWM pela metade pra nao passar do ponto
     if (!freando && falta <= ZONA_FRENAGEM_GRAUS) {
       freando = true;
-      motorEsquerdoSet(sinal_esq * (velGiro / 2));
-      motorDireitoSet(sinal_dir * (velGiro / 2));
+      motorEsquerdoSet(sinal_esq * (pwmGiro / 2));
+      motorDireitoSet(sinal_dir * (pwmGiro / 2));
     }
     delay(2);
   }
@@ -298,8 +297,8 @@ void girarParaAlvo(float alvo, bool paraDireita) {
     bool corrigirEsq = (erro > 0.0f);       // erro>0 -> aumentar rumo -> esquerda
     int se = corrigirEsq ? -1 : +1;
     int sd = corrigirEsq ? +1 : -1;
-    motorEsquerdoSet(se * VEL_CORRECAO_GIRO);
-    motorDireitoSet(sd * VEL_CORRECAO_GIRO);
+    motorEsquerdoSet(se * VEL_CORRECAO_PWM);
+    motorDireitoSet(sd * VEL_CORRECAO_PWM);
 
     // Pulso curto: corta assim que entrar na margem pra nao passar de novo
     unsigned long tPulso = millis();
@@ -336,8 +335,8 @@ void mostrarMenu() {
   logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
   logMsg("GIR_D    -> Gira 90 graus pra Direita (mede pela bussola)");
   logMsg("GIR_E    -> Gira 90 graus pra Esquerda (mede pela bussola)");
-  logMsg("VEL n    -> Ajusta a velocidade do giro (%). Ex.: VEL 80");
-  logMsg("VEL      -> Mostra a velocidade do giro atual");
+  logMsg("PWM n    -> Ajusta o PWM do giro (0-255). Ex.: PWM 200");
+  logMsg("PWM      -> Mostra o PWM do giro atual");
   logMsg("BUS_ON   -> Liga o streaming continuo do rumo (200ms)");
   logMsg("BUS_OFF  -> Desliga o streaming continuo do rumo");
   logMsg("CALIBRAR -> Recalibra o offset do gyro (robo parado)");
@@ -362,16 +361,17 @@ void executarComando(String cmd) {
   } else if (cmd == "GIR_E") {
     logMsg("Girando 90 graus pra ESQUERDA...");
     girarEsquerda90();
-  } else if (cmd == "VEL" || cmd.startsWith("VEL ")) {
+  } else if (cmd == "PWM" || cmd.startsWith("PWM ") ||
+             cmd == "VEL" || cmd.startsWith("VEL ")) {   // VEL: alias antigo
     char buf[48];
-    if (cmd == "VEL") {
-      // sem argumento: so mostra a velocidade atual
-      sprintf(buf, "Velocidade do giro: %d%%", velGiro);
+    if (cmd == "PWM" || cmd == "VEL") {
+      // sem argumento: so mostra o PWM atual
+      sprintf(buf, "PWM do giro: %d (0-255)", pwmGiro);
       logMsg(String(buf));
     } else {
-      int v = cmd.substring(4).toInt();          // texto depois de "VEL "
-      velGiro = constrain(v, 1, 120);            // valor bruto (motorSet satura em 100)
-      sprintf(buf, "Velocidade do giro ajustada para %d%%", velGiro);
+      int v = cmd.substring(4).toInt();          // texto depois de "PWM " / "VEL "
+      pwmGiro = constrain(v, 0, 255);            // duty PWM direto
+      sprintf(buf, "PWM do giro ajustado para %d (0-255)", pwmGiro);
       logMsg(String(buf));
     }
   } else if (cmd == "BUS_ON") {

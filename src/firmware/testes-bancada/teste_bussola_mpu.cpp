@@ -40,9 +40,9 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-// OBS: motorSet limita a -100..100. Em producao VEL_GIRO=120 (satura em 100%);
-// aqui baixo pra 70 pra ficar mais lento, mas com torque suficiente pra girar.
-#define VEL_GIRO 70 // % velocidade do giro (mais baixo = mais lento)
+// OBS: motorSet limita a -100..100. VEL_GIRO=105 satura em 100% no cruzeiro,
+// mas garante torque de sobra pra girar ate os graus (metade na frenagem = ~52%).
+#define VEL_GIRO 105 // % velocidade do giro (mais alto = mais torque/rapido)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO

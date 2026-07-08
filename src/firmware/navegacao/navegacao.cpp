@@ -76,12 +76,14 @@ static void girar_para(Direcao alvo) {
         case 2: girar_180();        break;
         case 3: girar_esquerda_90(); break;
     }
+    if (emergencia_ativa()) return;
     direcao_atual = alvo;
 }
 
 // Anda exatamente 1 célula para frente e atualiza a posição lógica.
 static void avancar_uma_celula() {
     mover_frente_celula();
+    if (emergencia_ativa()) return;
     switch (direcao_atual) {
         case NORTE: linha_atual++;  break;
         case SUL:   linha_atual--;  break;

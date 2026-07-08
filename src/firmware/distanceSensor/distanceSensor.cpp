@@ -8,15 +8,16 @@
 VL53L0X sensorEsq;
 VL53L0X sensorFrente;
 VL53L0X sensorDir;
+static bool sensoresConfigurados = false;
 
-// Definindo os novos endereços I2C (7-bit)
+// Definindo os novos enderecos I2C (7-bit)
 #define ENDERECO_TOF_ESQ    0x30
 #define ENDERECO_TOF_FRENTE 0x31
 #define ENDERECO_TOF_DIR    0x32
 
 void configurarSensoresToF() {
 
-  // Configurar os pinos XSHUT como saída
+  // Configurar os pinos XSHUT como saida
   pinMode(PIN_TOF1_XSHUT, OUTPUT);
   pinMode(PIN_TOF2_XSHUT, OUTPUT);
   pinMode(PIN_TOF3_XSHUT, OUTPUT);
@@ -35,8 +36,8 @@ void configurarSensoresToF() {
     Serial.println("Falha ao iniciar o Sensor Esquerdo!");
   } else {
     sensorEsq.setAddress(ENDERECO_TOF_ESQ);
-    sensorEsq.setMeasurementTimingBudget(20000); // Reduz o tempo de captura para 20ms
-    sensorEsq.startContinuous(20); // Configura para modo de alta velocidade (leitura a cada 20ms)
+    sensorEsq.setMeasurementTimingBudget(20000);
+    sensorEsq.startContinuous(20);
   }
 
   // Inicializar Sensor Frontal (TOF2)
@@ -47,8 +48,8 @@ void configurarSensoresToF() {
     Serial.println("Falha ao iniciar o Sensor Frontal!");
   } else {
     sensorFrente.setAddress(ENDERECO_TOF_FRENTE);
-    sensorFrente.setMeasurementTimingBudget(20000); // Reduz o tempo de captura para 20ms
-    sensorFrente.startContinuous(20); // Configura para modo de alta velocidade (leitura a cada 20ms)
+    sensorFrente.setMeasurementTimingBudget(20000);
+    sensorFrente.startContinuous(20);
   }
 
   // Inicializar Sensor Direito (TOF3)
@@ -59,9 +60,11 @@ void configurarSensoresToF() {
     Serial.println("Falha ao iniciar o Sensor Direito!");
   } else {
     sensorDir.setAddress(ENDERECO_TOF_DIR);
-    sensorDir.setMeasurementTimingBudget(20000); // Reduz o tempo de captura para 20ms
-    sensorDir.startContinuous(20); // Configura para modo de alta velocidade (leitura a cada 20ms)
+    sensorDir.setMeasurementTimingBudget(20000);
+    sensorDir.startContinuous(20);
   }
+
+  sensoresConfigurados = true;
 }
 
 ToFSensorReading lerTodosSensores() {
@@ -80,7 +83,7 @@ ToFSensorReading lerTodosSensores() {
 
 void lerExibirSensoresToF() {
 
-  // Lê os valores de distância em milímetros
+  // Le os valores de distancia em milimetros
   uint16_t distEsq = sensorEsq.readRangeContinuousMillimeters();
   uint16_t distFrente = sensorFrente.readRangeContinuousMillimeters();
   uint16_t distDir = sensorDir.readRangeContinuousMillimeters();
@@ -91,12 +94,10 @@ void lerExibirSensoresToF() {
   if (sensorFrente.timeoutOccurred()) { Serial.print("ERRO_FRENTE "); erro = true; }
   if (sensorDir.timeoutOccurred()) { Serial.print("ERRO_DIR "); erro = true; }
 
-  // Se deu erro quebra a linha para não bagunçar o terminal
   if (erro) {
     Serial.println();
   }
   else {
-    // Exibição e tratamento do "Fora de Alcance" (> 8000)
     Serial.print("Esq: ");
     if (distEsq > 8000) Serial.print(">Max"); else Serial.print(distEsq);
 
@@ -109,23 +110,31 @@ void lerExibirSensoresToF() {
     Serial.println(" mm");
   }
 
-  // Delay para testes, podemos tirar depois para ter leituras mais rápidas
   delay(50);
 }
 
-// Buffers circulares — um por sensor, totalmente independentes
 static uint16_t bufferEsq[NUM_AMOSTRAS]    = {0};
 static uint16_t bufferFrente[NUM_AMOSTRAS] = {0};
 static uint16_t bufferDir[NUM_AMOSTRAS]    = {0};
 static int  bufferIndex = 0;
 static bool bufferCheio = false;
 
-// Estados anteriores para detecção de transição
+static uint16_t ultimaEsq = 8190;
+static uint16_t ultimaFrente = 8190;
+static uint16_t ultimaDir = 8190;
+static bool emergenciaAtiva = false;
+static uint8_t emergenciaLados = 0;
+
+// Estados anteriores para deteccao de transicao
 static bool estadoParedeEsq    = false;
 static bool estadoParedeFrente = false;
 static bool estadoParedeDir    = false;
 
 void atualizar_filtro_media() {
+    if (!sensoresConfigurados) {
+        return;
+    }
+
     ToFSensorReading leitura = lerTodosSensores();
 
     // Se houve timeout, valor alto usado (8190)
@@ -133,11 +142,15 @@ void atualizar_filtro_media() {
     uint16_t valFrente = leitura.erroFrente ? 8190 : leitura.distFrente;
     uint16_t valDir = leitura.erroDir ? 8190 : leitura.distDir;
 
-    // Aplicar correção no sensor Esquerdo (Sensor 1)
+    // Aplicar correcao no sensor Esquerdo (Sensor 1)
     if (valEsq < 8000) {
         int corrigido = (int)valEsq + DESVIO_SENSOR_1;
         valEsq = (corrigido > 0) ? (uint16_t)corrigido : 0;
     }
+
+    ultimaEsq = valEsq;
+    ultimaFrente = valFrente;
+    ultimaDir = valDir;
 
     bufferEsq[bufferIndex] = valEsq;
     bufferFrente[bufferIndex] = valFrente;
@@ -152,7 +165,7 @@ void atualizar_filtro_media() {
 
 static uint16_t calcularMedia(uint16_t* buffer) {
     int maxIt = bufferCheio ? NUM_AMOSTRAS : bufferIndex;
-    if (maxIt == 0) return 8190; // Sem leituras
+    if (maxIt == 0) return 8190;
 
     uint32_t soma = 0;
     for (int i = 0; i < maxIt; i++) {
@@ -169,6 +182,10 @@ uint16_t distancia_esquerda_mm() {
     return calcularMedia(bufferEsq);
 }
 
+uint16_t distancia_frente_mm() {
+    return calcularMedia(bufferFrente);
+}
+
 bool tem_parede_esquerda() {
     return calcularMedia(bufferEsq) < LIMITE_PAREDE;
 }
@@ -181,11 +198,56 @@ bool tem_parede_direita() {
     return calcularMedia(bufferDir) < LIMITE_PAREDE;
 }
 
-void verificar_emergencia() {
-    if (calcularMedia(bufferFrente) < LIMITE_SEGURANCA_FRENTE) {
-        motors_stop_all();
-        Serial.println("[EMERGÊNCIA] Obstáculo iminente! Freando os motores!");
+static bool leituraValida(uint16_t valor) {
+    return valor < 8000;
+}
+
+static uint8_t ladosEmEmergencia(uint16_t limite) {
+    uint8_t lados = 0;
+    if (leituraValida(ultimaEsq) && ultimaEsq <= limite) lados |= EMERGENCIA_TOF_ESQ;
+    if (leituraValida(ultimaFrente) && ultimaFrente <= limite) lados |= EMERGENCIA_TOF_FRENTE;
+    if (leituraValida(ultimaDir) && ultimaDir <= limite) lados |= EMERGENCIA_TOF_DIR;
+    return lados;
+}
+
+bool emergencia_ativa() {
+    return emergenciaAtiva;
+}
+
+uint8_t emergencia_tof_lados() {
+    return emergenciaLados;
+}
+
+void limpar_emergencia_se_seguro() {
+    if (ladosEmEmergencia(LIMITE_REARME_EMERGENCIA_MM) == 0) {
+        emergenciaAtiva = false;
+        emergenciaLados = 0;
     }
+}
+
+bool verificar_emergencia() {
+    uint8_t lados = ladosEmEmergencia(LIMITE_EMERGENCIA_TOF_MM);
+
+    if (lados != 0) {
+        bool novaEmergencia = !emergenciaAtiva;
+        emergenciaAtiva = true;
+        emergenciaLados = lados;
+        motors_stop_all();
+        if (novaEmergencia) {
+            Serial.print("[EMERGENCIA] Parede a 2 cm ou menos. Lados=");
+            Serial.println(emergenciaLados, BIN);
+        }
+        return true;
+    }
+
+    if (emergenciaAtiva) {
+        limpar_emergencia_se_seguro();
+        if (emergenciaAtiva) {
+            motors_stop_all();
+        }
+    }
+
+    return emergenciaAtiva;
 }
 
 void testar_sensores_paredes() {

@@ -26,10 +26,16 @@ static const float ANGULO_GIRO_90_GRAUS = 90.0f;
 // por inércia do robô.
 static const float ZONA_FRENAGEM_GRAUS = 20.0f;
 
+static bool atualizar_e_verificar_emergencia() {
+    atualizar_filtro_media();
+    return verificar_emergencia();
+}
+
 // ── Aguarda encoder atingir alvo ou timeout ───────────
 static void aguardar_pulsos(long alvo_esq, long alvo_dir) {
     unsigned long inicio = millis();
     while (true) {
+        if (atualizar_e_verificar_emergencia()) break;
         long esq = abs(encoder_esquerdo_get());
         long dir = abs(encoder_direito_get());
         if (esq >= alvo_esq && dir >= alvo_dir) break;
@@ -41,6 +47,7 @@ static void aguardar_pulsos(long alvo_esq, long alvo_dir) {
 
 // ── Mover 1 célula para frente (180 mm) ──────────────
 void mover_frente_celula() {
+    if (atualizar_e_verificar_emergencia()) return;
     encoder_esquerdo_reset();
     encoder_direito_reset();
     motor_esquerdo_set(VEL_PADRAO);
@@ -50,6 +57,7 @@ void mover_frente_celula() {
 
 // ── Mover 1 célula para trás (180 mm) ────────────────
 void mover_tras_celula() {
+    if (atualizar_e_verificar_emergencia()) return;
     encoder_esquerdo_reset();
     encoder_direito_reset();
     motor_esquerdo_set(-VEL_PADRAO);
@@ -70,6 +78,7 @@ static void girar_com_giroscopio(int velocidade_esq, int velocidade_dir, float a
     bool freando = false;
 
     while (true) {
+        if (atualizar_e_verificar_emergencia()) break;
         mpu_atualizar_angulo();
         float atual_graus = fabsf(mpu_get_angulo());
 
@@ -107,6 +116,7 @@ void girar_180() {
 // direita, gira à esquerda até a distância voltar a >= 50 mm.
 void ajuste_parede_direita() {
     atualizar_filtro_media();
+    if (verificar_emergencia()) return;
     if (distancia_direita_mm() >= DIST_MIN_DIREITA_MM) return;
 
     // Gira no próprio eixo para a esquerda
@@ -115,6 +125,7 @@ void ajuste_parede_direita() {
 
     unsigned long inicio = millis();
     while (distancia_direita_mm() < DIST_MIN_DIREITA_MM) {
+        if (verificar_emergencia()) break;
         if (millis() - inicio > TIMEOUT_MS) break; // segurança
         atualizar_filtro_media(); // mantém a média do sensor atualizada
         delay(20);                // sensores leem a cada 20 ms
@@ -127,6 +138,7 @@ void ajuste_parede_direita() {
 // esquerda, gira à direita até a distância voltar a >= 50 mm.
 void ajuste_parede_esquerda() {
     atualizar_filtro_media();
+    if (verificar_emergencia()) return;
     if (distancia_esquerda_mm() >= DIST_MIN_ESQUERDA_MM) return;
 
     // Gira no próprio eixo para a direita
@@ -135,6 +147,7 @@ void ajuste_parede_esquerda() {
 
     unsigned long inicio = millis();
     while (distancia_esquerda_mm() < DIST_MIN_ESQUERDA_MM) {
+        if (verificar_emergencia()) break;
         if (millis() - inicio > TIMEOUT_MS) break; // segurança
         atualizar_filtro_media(); // mantém a média do sensor atualizada
         delay(20);                // sensores leem a cada 20 ms
@@ -142,31 +155,108 @@ void ajuste_parede_esquerda() {
     motors_stop_all();
 }
 
+static void recuar_ate_frente_segura() {
+    motor_esquerdo_set(-VEL_AJUSTE);
+    motor_direito_set(-VEL_AJUSTE);
+
+    unsigned long inicio = millis();
+    while (distancia_frente_mm() < LIMITE_REARME_EMERGENCIA_MM) {
+        if (millis() - inicio > TIMEOUT_MS) break;
+        atualizar_filtro_media();
+        delay(20);
+    }
+    motors_stop_all();
+}
+
+static void girar_ate_lado_seguro(bool parede_esquerda) {
+    if (parede_esquerda) {
+        motor_esquerdo_set(VEL_AJUSTE);
+        motor_direito_set(-VEL_AJUSTE);
+    } else {
+        motor_esquerdo_set(-VEL_AJUSTE);
+        motor_direito_set(VEL_AJUSTE);
+    }
+
+    unsigned long inicio = millis();
+    while (true) {
+        atualizar_filtro_media();
+        uint16_t distancia = parede_esquerda ? distancia_esquerda_mm() : distancia_direita_mm();
+        if (distancia >= LIMITE_REARME_EMERGENCIA_MM) break;
+        if (distancia_frente_mm() <= LIMITE_EMERGENCIA_TOF_MM) break;
+        if (millis() - inicio > TIMEOUT_MS) break;
+        delay(20);
+    }
+    motors_stop_all();
+}
+
+void recuperar_centro_labirinto() {
+    atualizar_filtro_media();
+    if (!verificar_emergencia()) return;
+
+    uint8_t lados = emergencia_tof_lados();
+    motors_stop_all();
+    delay(150);
+
+    if (lados & EMERGENCIA_TOF_FRENTE) {
+        recuar_ate_frente_segura();
+    }
+    if (lados & EMERGENCIA_TOF_ESQ) {
+        girar_ate_lado_seguro(true);
+    }
+    if (lados & EMERGENCIA_TOF_DIR) {
+        girar_ate_lado_seguro(false);
+    }
+
+    atualizar_filtro_media();
+    limpar_emergencia_se_seguro();
+    motors_stop_all();
+}
+
 // ── Funções legadas por tempo ─────────────────────────
 void mover_frente(int velocidade, unsigned long tempo_ms) {
+    if (atualizar_e_verificar_emergencia()) return;
     motor_esquerdo_set(velocidade);
     motor_direito_set(velocidade);
-    delay(tempo_ms);
+    unsigned long inicio = millis();
+    while (millis() - inicio < tempo_ms) {
+        if (atualizar_e_verificar_emergencia()) break;
+        delay(10);
+    }
     motors_stop_all();
 }
 
 void mover_tras(int velocidade, unsigned long tempo_ms) {
+    if (atualizar_e_verificar_emergencia()) return;
     motor_esquerdo_set(-velocidade);
     motor_direito_set(-velocidade);
-    delay(tempo_ms);
+    unsigned long inicio = millis();
+    while (millis() - inicio < tempo_ms) {
+        if (atualizar_e_verificar_emergencia()) break;
+        delay(10);
+    }
     motors_stop_all();
 }
 
 void girar_esquerda(int velocidade, unsigned long tempo_ms) {
+    if (atualizar_e_verificar_emergencia()) return;
     motor_esquerdo_set(-velocidade);
     motor_direito_set(velocidade);
-    delay(tempo_ms);
+    unsigned long inicio = millis();
+    while (millis() - inicio < tempo_ms) {
+        if (atualizar_e_verificar_emergencia()) break;
+        delay(10);
+    }
     motors_stop_all();
 }
 
 void girar_direita(int velocidade, unsigned long tempo_ms) {
+    if (atualizar_e_verificar_emergencia()) return;
     motor_esquerdo_set(velocidade);
     motor_direito_set(-velocidade);
-    delay(tempo_ms);
+    unsigned long inicio = millis();
+    while (millis() - inicio < tempo_ms) {
+        if (atualizar_e_verificar_emergencia()) break;
+        delay(10);
+    }
     motors_stop_all();
 }

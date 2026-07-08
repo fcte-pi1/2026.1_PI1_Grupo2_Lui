@@ -3,6 +3,7 @@
 #include "pins.h"
 #include "motors/motors.h"
 #include "distanceSensor/distanceSensor.h"
+#include "movimento/movimento.h"
 #include "mpu/mpu.h"
 #include "encoder/encoder.h"
 
@@ -62,7 +63,9 @@ void loop() {
     atualizar_filtro_media();
 
     // Verifica freio de emergência
-    verificar_emergencia();
+    if (verificar_emergencia()) {
+        recuperar_centro_labirinto();
+    }
 
     // Imprime mock do map_manager se houve mudança no estado das paredes
     testar_sensores_paredes();

@@ -1,6 +1,7 @@
 // ==========================================
-// TESTE GERAL DO MICROMOUSE (TESTES UNIFICADOS)
-// Com Bluetooth Serial ("micromouse")
+// TESTE GIROSCOPIO PAREDE (GYRO + TOF HIBRIDO)
+// Usando o teste_geral.cpp como base e adicionando
+// a logica de navegacao hibrida (Sensor Fusion).
 // ==========================================
 #include <Arduino.h>
 #include <Wire.h>
@@ -25,33 +26,26 @@
 #define TOF2_XSHUT 16
 #define TOF3_XSHUT 17
 
-// --- Registrador do gyro Z (bussola) ---
-#define REG_GYRO_ZOUT_H  0x47
-
-// --- Parametros da bussola (de teste_bussola_mpu.cpp) ---
-#define VEL_GIRO_PADRAO 120        // valor bruto (motor satura em 100)
-#define NMNI_LIMITE_DPS  1.0f      // abaixo disso, considera parado e nao integra
-// --- Parametros do giro pela bussola ---
-#define PASSO_GIRO_GRAUS      90.0f
-#define ZONA_FRENAGEM_GRAUS   20.0f
-#define MARGEM_PARADA_GRAUS    2.0f
-#define TIMEOUT_GIRO_MS       4000
-// --- Correcao de overshoot (malha fechada apos a freada) ---
-#define VEL_CORRECAO_GIRO       60
-#define ASSENTAMENTO_MS        150
-#define PULSO_CORRECAO_MS       80
-#define MAX_PULSOS_CORRECAO      8
-
 // --- Variáveis Globais ---
+// --- Bluetooth ---
 BluetoothSerial SerialBT;
-
-// --- Variáveis de Estado ---
 String comandoBT = "";
 String comandoSerial = "";
+
+// --- Multithread Print (Core 0) ---
+TaskHandle_t TaskPrintHandle;
+volatile bool devePrintar = false;
+volatile float p_anguloZ = 0.0f;
+volatile float p_distEsq = 0.0f;
+volatile float p_distDir = 0.0f;
+volatile int p_pwmEsq = 0;
+volatile int p_pwmDir = 0;
+volatile bool mpuDadosProntos = false;
+
+// --- Variáveis de Estado (leituras contínuas) ---
 bool leituraSensoresContinua = false;
 unsigned long tempoAnteriorSensores = 0;
 bool mpuAtivo = false;
-volatile bool mpuDadosProntos = false;
 
 // --- Variaveis do Encoder ---
 bool encAtivo = false;
@@ -65,17 +59,23 @@ VL53L0X sensor2;
 VL53L0X sensor3;
 bool tof1Ok = false, tof2Ok = false, tof3Ok = false;
 
-// --- Estado da bussola (heading relativo, so gyro Z) ---
-float offsetGiroZ_dps = 0.0f;          // bias do gyro em graus/s
-float rumo_deg = 0.0f;                 // heading atual, normalizado 0-360
-float alvoRumo_deg = 0.0f;             // alvo ACUMULADO do giro (grade de 90), 0-360
-int   velGiro = VEL_GIRO_PADRAO;       // velocidade do giro, bruta
-unsigned long ultimaAtualizacao_us = 0;
-
 // Funções Utilitárias
 void logMsg(String msg) {
   Serial.println(msg);
   SerialBT.println(msg);
+}
+
+void taskPrintTelemetry(void * pvParameters) {
+  for(;;) {
+    if (devePrintar) {
+      char buf[120];
+      sprintf(buf, "YAW: %5.2f | Esq: %4.1f cm | Dir: %4.1f cm | PWM_E: %4d | PWM_D: %4d", 
+              p_anguloZ, p_distEsq, p_distDir, p_pwmEsq, p_pwmDir);
+      logMsg(String(buf));
+      devePrintar = false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // Libera o Core 0 por 10ms
+  }
 }
 
 // --- MPU6500 Funções ---
@@ -97,6 +97,10 @@ long mpuOffsetAcelZ = 852;
 long mpuOffsetGiroX = 740;
 long mpuOffsetGiroY = 412;
 long mpuOffsetGiroZ = -32;
+
+// --- Variáveis de Integração do Yaw ---
+float anguloZ = 0.0f;
+unsigned long ultimoTempoGiro = 0;
 
 void lerMPU() {
   mpuDadosProntos = false;
@@ -132,6 +136,26 @@ void lerMPU() {
 
 // --- Dummy motor functions removidas (usando motors.h e movimento.h agora) ---
 
+void atualizarGiroscopio() {
+  Wire.beginTransmission(MPU6500_ADDR);
+  Wire.write(0x47); // REG_GYRO_ZOUT_H
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint16_t)MPU6500_ADDR, (uint8_t)2);
+
+  if (Wire.available() >= 2) {
+    int16_t gzRaw = (Wire.read() << 8) | Wire.read();
+    float gz = (gzRaw - mpuOffsetGiroZ) / 131.0f; 
+    
+    unsigned long agora = millis();
+    float dt = (agora - ultimoTempoGiro) / 1000.0f;
+    ultimoTempoGiro = agora;
+
+    if (abs(gz) > 1.0f) {
+      anguloZ += gz * dt;
+    }
+  }
+}
+
 // --- Filtro TOF (Média Móvel Exponencial - EMA) ---
 float filtroS1 = 0;
 float filtroS2 = 0;
@@ -154,6 +178,129 @@ void lerTOFs() {
   // 3. Imprime os valores já filtrados
   sprintf(buf, "TOF | S1:%4d mm | S2:%4d mm | S3:%4d mm", (int)filtroS1, (int)filtroS2, (int)filtroS3);
   logMsg(String(buf));
+}
+
+void atualizarTOFsSilencioso() {
+  int r1 = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
+  int r2 = tof2Ok ? sensor2.readRangeContinuousMillimeters() - 45 : -1;
+  int r3 = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
+
+  if (r1 != -1 && r1 < 1200) filtroS1 = (filtroS1 == 0) ? r1 : (alphaTOF * r1) + ((1.0 - alphaTOF) * filtroS1);
+  if (r2 != -1 && r2 < 1200) filtroS2 = (filtroS2 == 0) ? r2 : (alphaTOF * r2) + ((1.0 - alphaTOF) * filtroS2);
+  if (r3 != -1 && r3 < 1200) filtroS3 = (filtroS3 == 0) ? r3 : (alphaTOF * r3) + ((1.0 - alphaTOF) * filtroS3);
+}
+
+// ==============================================================
+// LÓGICA PRINCIPAL - TESTE PARADO (GYRO + TOF)
+// ==============================================================
+void manterCentralizadoParado() {
+    float KP_PAREDE = 10.0f;     // Ganho mais agressivo para vencer atrito estático
+
+    float CLEARANCE_MINIMO_CM = 3.0f; // So corrige se a distancia for MENOR que 3 cm
+
+    // Histerese da correcao de direcao (logica de giro do teste_geral/movimento):
+    // comeca a corrigir quando desviar mais que INICIAR, para quando chegar em PARAR
+    const float TOLERANCIA_INICIAR = 3.0f;  // graus
+    const float TOLERANCIA_PARAR   = 0.5f;  // graus
+    bool corrigindoGiro = false;
+
+    anguloZ = 0.0f;
+    ultimoTempoGiro = millis();
+    unsigned long ultimoUpdate = millis();
+    unsigned long ultimoPrint = millis();
+    
+    logMsg("Iniciando teste PARADO (Gyro + TOF). Envie qualquer tecla para SAIR.");
+    
+    // Limpa a serial antes de entrar no loop
+    while (Serial.available()) Serial.read();
+    while (SerialBT.available()) SerialBT.read();
+    
+    // Fica no loop até o usuário enviar algo
+    while (Serial.available() == 0 && SerialBT.available() == 0) {
+           
+        unsigned long agora = millis();
+        
+        // Roda PID a cada 20ms (50Hz)
+        if (agora - ultimoUpdate >= 20) {
+            ultimoUpdate = agora;
+            
+            // --- A. GESTAO DO GIROSCOPIO (Angulo) ---
+            atualizarGiroscopio();
+
+            // --- B. GESTAO DE PAREDES (Centralizacao TOF) ---
+            atualizarTOFsSilencioso();
+            float distEsq = filtroS1 / 10.0f; // mm para cm
+            float distDir = filtroS3 / 10.0f;
+            
+            float erroParede = 0.0f;
+            bool esqPerigo = distEsq > 0 && distEsq < CLEARANCE_MINIMO_CM;
+            bool dirPerigo = distDir > 0 && distDir < CLEARANCE_MINIMO_CM;
+            
+            if (esqPerigo && dirPerigo) {
+                // Caso extremo (muito apertado), centraliza pela diferenca
+                erroParede = distEsq - distDir;
+            } else if (esqPerigo) {
+                // Se invadir o limite de 3cm na esquerda, gera erro de repulsao
+                erroParede = (distEsq - CLEARANCE_MINIMO_CM) * 2.0f;
+            } else if (dirPerigo) {
+                // Se invadir o limite de 3cm na direita, gera erro de repulsao
+                erroParede = (CLEARANCE_MINIMO_CM - distDir) * 2.0f;
+            } else {
+                // Mais do que 3cm das paredes: NENHUMA correcao (segue reto so no Gyro)
+                erroParede = 0.0f;
+            }
+            
+            float correcaoParede = erroParede * KP_PAREDE;
+            if (correcaoParede > 150.0f) correcaoParede = 150.0f;
+            if (correcaoParede < -150.0f) correcaoParede = -150.0f;
+
+            // --- C. CORRECAO DE DIRECAO (logica de giro do teste_geral/movimento) ---
+            // PWM proporcional baixo nao vence o atrito estatico (ficava < zona morta
+            // e o robo parava fora do 0). Aqui gira a VEL_GIRO fixo, como o
+            // girar_esquerda_90/girar_direita_90, ate o gyro voltar perto de 0.
+            if (!corrigindoGiro && abs(anguloZ) > TOLERANCIA_INICIAR) corrigindoGiro = true;
+            if (corrigindoGiro && abs(anguloZ) < TOLERANCIA_PARAR) corrigindoGiro = false;
+
+            int pwmEsq = 0;
+            int pwmDir = 0;
+            if (corrigindoGiro) {
+                // anguloZ > 0 -> girar para a direita (esq +, dir -)
+                pwmEsq = (anguloZ > 0) ? VEL_GIRO : -VEL_GIRO;
+                pwmDir = -pwmEsq;
+            }
+
+            // Repulsao de parede continua somada por cima
+            // erroParede > 0 (mais perto da dir, precisa ir pra esq): freia esq, acelera dir
+            pwmEsq -= (int)correcaoParede;
+            pwmDir += (int)correcaoParede;
+
+            // Permite rodas girarem para tras para o robo rotacionar no proprio eixo
+            pwmEsq = constrain(pwmEsq, -255, 255);
+            pwmDir = constrain(pwmDir, -255, 255);
+
+            // Zona morta para o motor nao ficar apitando com pwm mto baixo (opcional)
+            if (abs(pwmEsq) < 30) pwmEsq = 0;
+            if (abs(pwmDir) < 30) pwmDir = 0;
+
+            motor_esquerdo_set(pwmEsq);
+            motor_direito_set(pwmDir);
+            // --- PRINT DAS LEITURAS EM MULTITHREAD A CADA 250ms ---
+            if (agora - ultimoPrint >= 250) {
+                ultimoPrint = agora;
+                // Passa os valores para a Task no Core 0
+                p_anguloZ = anguloZ;
+                p_distEsq = distEsq;
+                p_distDir = distDir;
+                p_pwmEsq = pwmEsq;
+                p_pwmDir = pwmDir;
+                devePrintar = true; // Aciona a impressao assincrona
+            }
+        }
+        yield();
+    }
+    
+    motors_stop_all(); 
+    logMsg("Teste interrompido. Angulo residual: " + String(anguloZ) + " graus");
 }
 
 // --- Encoders Funções ---
@@ -221,210 +368,32 @@ void calibrarMPU() {
   sprintf(buf, "OFFSET GIRO -> X: %ld | Y: %ld | Z: %ld", mediaGiroX, mediaGiroY, mediaGiroZ);
   logMsg(String(buf));
   logMsg("===============================\n");
-}
 
-// ==========================================
-// BUSSOLA (heading relativo com gyro Z) — de teste_bussola_mpu.cpp
-// Sem magnetometro: o "norte" e o rumo no momento da calibracao.
-// ==========================================
-
-// --- Leitura do gyro Z em graus/s (sem descontar bias) ---
-float lerGiroZ_dps() {
-  Wire.beginTransmission(MPU6500_ADDR);
-  Wire.write(REG_GYRO_ZOUT_H);
-  Wire.endTransmission(false);
-  Wire.requestFrom((uint16_t)MPU6500_ADDR, (uint8_t)2);
-  if (Wire.available() >= 2) {
-    int16_t gzRaw = (Wire.read() << 8) | Wire.read();
-    return gzRaw / 131.0f; // escala 250 dps
-  }
-  return 0.0f;
-}
-
-// --- Normaliza um angulo para a faixa [0, 360) ---
-float normalizar360(float ang) {
-  ang = fmodf(ang, 360.0f);
-  if (ang < 0.0f) ang += 360.0f;
-  return ang;
-}
-
-// --- Rumo -> ponto cardeal (8 direcoes) ---
-String direcaoCardeal(float rumo) {
-  static const char* dirs[] = {"N", "NE", "E", "SE", "S", "SO", "O", "NO"};
-  int idx = (int)((rumo + 22.5f) / 45.0f) % 8;
-  return String(dirs[idx]);
-}
-
-// --- Atualiza o rumo integrando o gyro (com NMNI) ---
-void atualizarBussola() {
-  float giroZ_dps = lerGiroZ_dps() - offsetGiroZ_dps;
-
-  unsigned long agora_us = micros();
-  if (ultimaAtualizacao_us == 0) {
-    // Primeira chamada: so registra a referencia de tempo, sem integrar
-    ultimaAtualizacao_us = agora_us;
-    return;
-  }
-
-  float dt_s = (agora_us - ultimaAtualizacao_us) / 1000000.0f;
-  ultimaAtualizacao_us = agora_us;
-
-  // NMNI: se o robo esta praticamente parado, nao integra (evita drift)
-  if (fabsf(giroZ_dps) < NMNI_LIMITE_DPS) return;
-
-  rumo_deg = normalizar360(rumo_deg + giroZ_dps * dt_s);
-}
-
-// --- Define o rumo atual como Norte (0 graus) ---
-void definirNorte() {
-  rumo_deg = 0.0f;
-  alvoRumo_deg = 0.0f;   // zera tambem o alvo acumulado do giro
-  ultimaAtualizacao_us = micros();
-  logMsg("Norte definido: rumo atual = 0 graus.");
-}
-
-// --- Calibracao do bias do gyro Z (robo parado) ---
-void calibrarOffsetGiro() {
-  logMsg("[MPU] Calibrando offset do gyro (Z)... mantenha o robo parado.");
-  delay(500);
-
-  const int N_AMOSTRAS = 500;
-  double soma_dps = 0.0;
-  for (int i = 0; i < N_AMOSTRAS; i++) {
-    soma_dps += lerGiroZ_dps();
-    delay(3);
-  }
-  offsetGiroZ_dps = (float)(soma_dps / N_AMOSTRAS);
-
-  char buf[60];
-  sprintf(buf, "[MPU] Offset giro Z: %.3f graus/s", offsetGiroZ_dps);
-  logMsg(String(buf));
-}
-
-void mostrarRumo() {
-  atualizarBussola();
-  char buf[64];
-  sprintf(buf, "Rumo: %.1f graus (%s)", rumo_deg, direcaoCardeal(rumo_deg).c_str());
-  logMsg(String(buf));
-}
-
-// --- Quanto ainda falta girar (graus) ate o alvo, no sentido do giro ---
-float faltaParaAlvo(float alvo, bool paraDireita) {
-  if (paraDireita) return normalizar360(rumo_deg - alvo);
-  else             return normalizar360(alvo - rumo_deg);
-}
-
-// --- Erro SINALIZADO ate o alvo, na faixa (-180, 180] ---
-float erroParaAlvo(float alvo) {
-  float e = normalizar360(alvo - rumo_deg);
-  if (e > 180.0f) e -= 360.0f;
-  return e;
-}
-
-// --- Espera a inercia terminar mantendo o rumo atualizado ---
-void assentarInercia(unsigned long ms) {
-  motors_stop_all();
-  unsigned long t0 = millis();
-  while (millis() - t0 < ms) {
-    atualizarBussola();
-    delay(2);
-  }
-}
-
-// --- Gira ate a bussola bater no ALVO ABSOLUTO acumulado (alvoRumo_deg) ---
-void girarParaAlvo(float alvo, bool paraDireita) {
-  int sinal_esq = paraDireita ? +1 : -1;
-  int sinal_dir = paraDireita ? -1 : +1;
-
-  motor_esquerdo_set(sinal_esq * velGiro);
-  motor_direito_set(sinal_dir * velGiro);
-
-  unsigned long inicio = millis();
-  bool freando = false;
-
-  while (true) {
-    atualizarBussola();
-    float falta = faltaParaAlvo(alvo, paraDireita);
-
-    // Chegou (com margem: a inercia completa o resto)
-    if (falta <= MARGEM_PARADA_GRAUS) break;
-    // Passou do ponto: a falta "da a volta" (>180) -> para pra nao girar de novo
-    if (falta > 180.0f) break;
-    if (millis() - inicio > TIMEOUT_GIRO_MS) break;
-
-    // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
-    if (!freando && falta <= ZONA_FRENAGEM_GRAUS) {
-      freando = true;
-      motor_esquerdo_set(sinal_esq * (velGiro / 2));
-      motor_direito_set(sinal_dir * (velGiro / 2));
-    }
-    delay(2);
-  }
-  motors_stop_all();
-
-  // --- Fase 2: correcao de overshoot (malha fechada) ---
-  for (int pulso = 0; pulso < MAX_PULSOS_CORRECAO; pulso++) {
-    assentarInercia(ASSENTAMENTO_MS);
-
-    float erro = erroParaAlvo(alvo);
-    if (fabsf(erro) <= MARGEM_PARADA_GRAUS) break;
-
-    // Gira no sentido que REDUZ o erro
-    bool corrigirEsq = (erro > 0.0f);
-    int se = corrigirEsq ? -1 : +1;
-    int sd = corrigirEsq ? +1 : -1;
-    motor_esquerdo_set(se * VEL_CORRECAO_GIRO);
-    motor_direito_set(sd * VEL_CORRECAO_GIRO);
-
-    unsigned long tPulso = millis();
-    while (millis() - tPulso < PULSO_CORRECAO_MS) {
-      atualizarBussola();
-      if (fabsf(erroParaAlvo(alvo)) <= MARGEM_PARADA_GRAUS) break;
-      delay(2);
-    }
-    motors_stop_all();
-  }
-  assentarInercia(ASSENTAMENTO_MS);
-
-  char buf[80];
-  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f | Erro: %.1f",
-          alvo, rumo_deg, erroParaAlvo(alvo));
-  logMsg(String(buf));
-}
-
-// GIR_D: acumula -90 no alvo (direita) | GIR_E: acumula +90 (esquerda)
-void girarDireita90() {
-  alvoRumo_deg = normalizar360(alvoRumo_deg - PASSO_GIRO_GRAUS);
-  girarParaAlvo(alvoRumo_deg, true);
-}
-void girarEsquerda90() {
-  alvoRumo_deg = normalizar360(alvoRumo_deg + PASSO_GIRO_GRAUS);
-  girarParaAlvo(alvoRumo_deg, false);
+  anguloZ = 0.0f;
+  ultimoTempoGiro = millis();
 }
 
 // --- Menu ---
 void mostrarMenu() {
-  logMsg("\n========= TESTE GERAL MICROMOUSE =========");
-  logMsg("MENU DE COMANDOS:");
+  logMsg("\n===== TESTE GYRO + TOF (PARADO) =====");
+  logMsg("--- Teste Principal ---");
+  logMsg("TESTE    -> Inicia correcao estatica Gyro + TOF (qq tecla p/ sair)");
+  logMsg("INFO     -> Leitura pontual (Yaw + distancia das paredes)");
+  logMsg("CALIBRAR -> Calibra o MPU e zera o Gyro (robo parado e plano)");
+  logMsg("STOP     -> Para motores imediatamente");
+  logMsg("--- Leituras Continuas ---");
   logMsg("TOF_ON   -> Liga leitura dos sensores de distancia (500ms)");
   logMsg("TOF_OFF  -> Desliga leitura dos sensores");
   logMsg("MPU_ON   -> Liga leitura do Giroscopio/Acelerometro");
   logMsg("MPU_OFF  -> Desliga MPU");
+  logMsg("--- Encoders ---");
+  logMsg("ENC      -> Mostra contagem dos Encoders");
   logMsg("ENC_ON   -> Liga impressao de velocidade dos Encoders");
   logMsg("ENC_OFF  -> Desliga impressao de velocidade");
   logMsg("ENC_RST  -> Zera a contagem dos Encoders (Para calibracao)");
-  logMsg("MOV_F    -> Mover 1 Celula Frente (via Encoder)");
-  logMsg("MOV_T    -> Mover 1 Celula Tras (via Encoder)");
-  logMsg("GIR_E    -> Girar 90 graus Esquerda (pela bussola, alvo acumulado)");
-  logMsg("GIR_D    -> Girar 90 graus Direita (pela bussola, alvo acumulado)");
-  logMsg("GIR_E_MOV-> Girar 90 graus Esquerda (versao movimento.h)");
-  logMsg("GIR_D_MOV-> Girar 90 graus Direita (versao movimento.h)");
-  logMsg("NORTE    -> Define o rumo atual como Norte (zera bussola)");
-  logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
-  logMsg("CALIBRAR -> Calibra o offset do gyro Z e zera a bussola (robo parado)");
-  logMsg("CALIBRAR_MPU -> Calibracao completa do MPU (acel + giro, so mostra offsets)");
-  logMsg("HELP     -> Mostra este menu");
-  logMsg("===========================================\n");
+  logMsg("--- Ajuda ---");
+  logMsg("HELP ou ? -> Mostra este menu");
+  logMsg("============================================");
 }
 
 void executarComando(String cmd) {
@@ -433,7 +402,22 @@ void executarComando(String cmd) {
   if (cmd.length() == 0) return;
   logMsg(">> Comando: " + cmd);
 
-  if (cmd == "TOF_ON") {
+  if (cmd == "TESTE" || cmd == "TESTE_P") {
+    manterCentralizadoParado();
+  } else if (cmd == "INFO") {
+    atualizarGiroscopio();
+    atualizarTOFsSilencioso();
+    float e = filtroS1 / 10.0f;
+    float d = filtroS3 / 10.0f;
+    char buf[100];
+    sprintf(buf, "YAW: %.2f | TOF Esq: %.1f cm | TOF Dir: %.1f cm", anguloZ, e, d);
+    logMsg(String(buf));
+  } else if (cmd == "CALIBRAR") {
+    calibrarMPU();
+  } else if (cmd == "STOP") {
+    motors_stop_all();
+    logMsg("Parado.");
+  } else if (cmd == "TOF_ON") {
     leituraSensoresContinua = true;
   } else if (cmd == "TOF_OFF") {
     leituraSensoresContinua = false;
@@ -441,34 +425,6 @@ void executarComando(String cmd) {
     mpuAtivo = true;
   } else if (cmd == "MPU_OFF") {
     mpuAtivo = false;
-  } else if (cmd == "MPU_OFF") {
-    mpuAtivo = false;
-  } else if (cmd == "MOV_F") {
-    logMsg("Movendo 1 celula pra frente...");
-    mover_frente_celula();
-    logMsg("Terminou!");
-  } else if (cmd == "MOV_T") {
-    logMsg("Movendo 1 celula pra tras...");
-    mover_tras_celula();
-    logMsg("Terminou!");
-  } else if (cmd == "GIR_E") {
-    logMsg("Girando 90 graus pra ESQUERDA (bussola)...");
-    girarEsquerda90();
-  } else if (cmd == "GIR_D") {
-    logMsg("Girando 90 graus pra DIREITA (bussola)...");
-    girarDireita90();
-  } else if (cmd == "GIR_E_MOV") {
-    logMsg("Girando 90 graus esquerda (movimento.h)...");
-    girar_esquerda_90();
-    logMsg("Terminou!");
-  } else if (cmd == "GIR_D_MOV") {
-    logMsg("Girando 90 graus direita (movimento.h)...");
-    girar_direita_90();
-    logMsg("Terminou!");
-  } else if (cmd == "NORTE") {
-    definirNorte();
-  } else if (cmd == "RUMO") {
-    mostrarRumo();
   } else if (cmd == "ENC") {
     lerEncoders();
   } else if (cmd == "ENC_ON") {
@@ -484,11 +440,6 @@ void executarComando(String cmd) {
     logMsg("Encoders zerados com sucesso!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
-  } else if (cmd == "CALIBRAR") {
-    calibrarOffsetGiro();
-    definirNorte();
-  } else if (cmd == "CALIBRAR_MPU") {
-    calibrarMPU();
   } else {
     logMsg("Comando desconhecido. Digite HELP.");
   }
@@ -531,19 +482,25 @@ void setup() {
   escreverReg(REG_INT_ENABLE, 0x01);
   pinMode(MPU_INT_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(MPU_INT_PIN), funcaoInterrupcaoMPU, RISING);
-
-  // --- Setup Bussola (calibra o bias do gyro Z e zera o rumo) ---
-  calibrarOffsetGiro();
-  definirNorte();
-
-  logMsg("\n--- INICIALIZACAO COMPLETA ---");
+  
+  // --- Init Multithread Print Task no Core 0 ---
+  // O loop principal do Arduino roda no Core 1. Ao jogar o print pro Core 0,
+  // evitamos qualquer lag de envio do Bluetooth de afetar o PID.
+  xTaskCreatePinnedToCore(
+      taskPrintTelemetry,   /* Funcao da task */
+      "TaskPrint",          /* Nome */
+      4096,                 /* Tamanho da stack */
+      NULL,                 /* Parametros */
+      1,                    /* Prioridade (1 = baixa) */
+      &TaskPrintHandle,     /* Handle */
+      0);                   /* Nucleo (Core 0 = PRO_CPU, lida com WiFi/BT) */
+  
+  logMsg("Inicializacao concluida.");
   mostrarMenu();
 }
 
 void loop() {
-  // Integra o rumo continuamente, pra bussola nao perder nenhum giro
-  atualizarBussola();
-
+  // --- Leitura de Comandos (Serial) ---
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
@@ -553,6 +510,8 @@ void loop() {
       comandoSerial += c;
     }
   }
+  
+  // --- Leitura de Comandos (Bluetooth) ---
   while (SerialBT.available()) {
     char c = SerialBT.read();
     if (c == '\n' || c == '\r') {
@@ -563,6 +522,7 @@ void loop() {
     }
   }
 
+  // --- Leituras Contínuas ---
   unsigned long tempoAtual = millis();
   if (leituraSensoresContinua && tempoAtual - tempoAnteriorSensores >= 500) {
     tempoAnteriorSensores = tempoAtual;
@@ -572,12 +532,12 @@ void loop() {
   if (encAtivo && tempoAtual - lastEncTime >= 500) {
     long curEsq = encoder_esquerdo_get();
     long curDir = encoder_direito_get();
-    
+
     // Calcula a variação (ticks por segundo)
     long deltaT = tempoAtual - lastEncTime;
     long varEsq = (curEsq - lastEncEsq) * 1000 / deltaT;
     long varDir = (curDir - lastEncDir) * 1000 / deltaT;
-    
+
     lastEncEsq = curEsq;
     lastEncDir = curDir;
     lastEncTime = tempoAtual;

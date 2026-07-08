@@ -3,6 +3,7 @@
 #include "pins.h"
 #include "motors/motors.h"
 #include "distanceSensor/distanceSensor.h"
+#include "movimento/movimento.h"
 #include "mpu/mpu.h"
 #include "encoder/encoder.h"
 #include "centralizacao/centralizacao.h"
@@ -34,6 +35,11 @@ void setup() {
     Serial.println("-> MPU-6500 inicializado.\n");
     delay(200);
 
+    Serial.println("[BOOT 3.1/5] Calibrando offset do giroscopio (mantenha o robo parado)...");
+    mpu_calibrar_offset_giro();
+    Serial.println("-> Offset do giroscopio calibrado.\n");
+    delay(200);
+
     Serial.println("[BOOT 4/5] Configurando encoders dos motores...");
     encoders_init();
     Serial.println("-> Encoders configurados nos pinos 32, 33 (motor esquerdo) e 34, 35 (motor direito).\n");
@@ -61,7 +67,9 @@ void loop() {
     atualizarMPU();
 
     // Verifica freio de emergência
-    verificar_emergencia();
+    if (verificar_emergencia()) {
+        recuperar_centro_labirinto();
+    }
 
     // Centraliza o robô no corredor usando sensores + giroscópio
     centralizar_no_corredor();

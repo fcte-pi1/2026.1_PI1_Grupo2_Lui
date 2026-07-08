@@ -25,8 +25,15 @@ ToFSensorReading lerTodosSensores();
 //   centralizado na célula, lendo com e sem parede.
 #define LIMITE_PAREDE           130
 
-// Se cair abaixo desse valor, os motores são parados
-#define LIMITE_SEGURANCA_FRENTE  40   // mm
+// Se qualquer ToF cair abaixo desse valor, os motores sao travados.
+#define LIMITE_EMERGENCIA_TOF_MM 20   // 2 cm
+
+// Histerese para liberar a trava depois que o robo se afastar da parede.
+#define LIMITE_REARME_EMERGENCIA_MM 50 // 5 cm
+
+#define EMERGENCIA_TOF_ESQ       0x01
+#define EMERGENCIA_TOF_FRENTE    0x02
+#define EMERGENCIA_TOF_DIR       0x04
 
 #define NUM_AMOSTRAS               5
 
@@ -36,10 +43,16 @@ ToFSensorReading lerTodosSensores();
 
 
 void atualizar_filtro_media();
+uint16_t distancia_direita_mm();   // Média filtrada do sensor direito (mm)
+uint16_t distancia_esquerda_mm();  // Média filtrada do sensor esquerdo (mm)
+uint16_t distancia_frente_mm();    // Media filtrada do sensor frontal (mm)
 bool tem_parede_esquerda();
 bool tem_parede_frente();
 bool tem_parede_direita();
-void verificar_emergencia();
+bool verificar_emergencia();
+bool emergencia_ativa();
+uint8_t emergencia_tof_lados();
+void limpar_emergencia_se_seguro();
 void testar_sensores_paredes();
 
 // ── Acesso à média filtrada dos sensores (em mm) ─────

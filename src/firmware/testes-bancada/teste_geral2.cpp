@@ -9,6 +9,7 @@
 #include "../encoder/encoder.h"
 #include "../motors/motors.h"
 #include "../movimento/movimento.h"
+#include "../mpu/mpu.h"
 // --- Pinos MPU6500 & I2C ---
 #define SDA_PIN 21
 #define SCL_PIN 22
@@ -106,6 +107,30 @@ void lerMPU() {
   }
 }
 
+// --- Integracao do Yaw (mesma logica do teste_giroscopio_parede) ---
+float anguloZ = 0.0f;
+unsigned long ultimoTempoGiro = 0;
+
+void atualizarGiroscopio() {
+  Wire.beginTransmission(MPU6500_ADDR);
+  Wire.write(0x47); // REG_GYRO_ZOUT_H
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint16_t)MPU6500_ADDR, (uint8_t)2);
+
+  if (Wire.available() >= 2) {
+    int16_t gzRaw = (Wire.read() << 8) | Wire.read();
+    float gz = (gzRaw - mpuOffsetGiroZ) / 131.0f;
+
+    unsigned long agora = millis();
+    float dt = (agora - ultimoTempoGiro) / 1000.0f;
+    ultimoTempoGiro = agora;
+
+    if (abs(gz) > 1.0f) {
+      anguloZ += gz * dt;
+    }
+  }
+}
+
 // --- Dummy motor functions removidas (usando motors.h e movimento.h agora) ---
 
 // --- Filtro TOF (Média Móvel Exponencial - EMA) ---
@@ -199,6 +224,119 @@ void calibrarMPU() {
   logMsg("===============================\n");
 }
 
+// --- Teste Distancia Parede ---
+#define DIST_MIN_PAREDE_MM 30  // 3cm
+#define TEMPO_GIRO_CORRECAO_MS 200
+#define COOLDOWN_CORRECAO_MS 2000  // trava pra girar uma vez so
+
+unsigned long ultimaCorrecao = 0;
+
+void testeDistanciaParede() {
+  // Trava: se acabou de corrigir, ignora (evita girar varias vezes seguidas)
+  if (ultimaCorrecao != 0 && millis() - ultimaCorrecao < COOLDOWN_CORRECAO_MS) {
+    logMsg("Correcao recente, aguardando cooldown...");
+    return;
+  }
+
+  // Le os dois TOFs laterais (S1 = esquerdo, S3 = direito), com os mesmos offsets
+  int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
+  int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
+
+  char buf[80];
+  sprintf(buf, "DIST PAREDE | Esq: %d mm | Dir: %d mm", distEsq, distDir);
+  logMsg(String(buf));
+
+  if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
+    // Muito perto da parede esquerda -> gira pra direita pra se afastar
+    logMsg("Parede esquerda muito perto! Girando pra direita...");
+    girar_direita(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
+    ultimaCorrecao = millis();
+    logMsg("Corrigido!");
+  } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
+    // Muito perto da parede direita -> gira pra esquerda pra se afastar
+    logMsg("Parede direita muito perto! Girando pra esquerda...");
+    girar_esquerda(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
+    ultimaCorrecao = millis();
+    logMsg("Corrigido!");
+  } else {
+    logMsg("Distancia OK, nenhuma correcao necessaria.");
+  }
+}
+
+// --- Teste Ajuste Parede (modo continuo: le sensores e gira ate afastar) ---
+#define TIMEOUT_AJUSTE_MS 3000     // seguranca: cada correcao dura no maximo 3s
+#define ANGULO_MAX_AJUSTE 45.0f    // graus: nao gira mais que isso por correcao
+
+// Gira ate a distancia lateral passar de 30mm (limitado pelo gyro e timeout)
+// paraDireita = true gira pra direita (afasta da parede esquerda)
+void girarAteAfastar(bool paraDireita) {
+  char buf[80];
+  anguloZ = 0.0f;
+  ultimoTempoGiro = millis();
+
+  int vel = VEL_GIRO / 2;
+  motor_esquerdo_set(paraDireita ? vel : -vel);
+  motor_direito_set(paraDireita ? -vel : vel);
+
+  int dist = -1;
+  unsigned long inicio = millis();
+  while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
+    atualizarGiroscopio();
+    if (abs(anguloZ) >= ANGULO_MAX_AJUSTE) {
+      logMsg("Limite de angulo atingido!");
+      break;
+    }
+    dist = paraDireita ? sensor1.readRangeContinuousMillimeters() - 23
+                       : sensor3.readRangeContinuousMillimeters() - 37;
+    if (dist >= DIST_MIN_PAREDE_MM) break;
+    delay(10);
+  }
+  motors_stop_all();
+
+  sprintf(buf, "Ajustado! %s: %d mm | Girou: %.1f graus",
+          paraDireita ? "Esq" : "Dir", dist, abs(anguloZ));
+  logMsg(String(buf));
+}
+
+void testeAjusteParede() {
+  logMsg("MODO AJUSTE PAREDE CONTINUO. Envie qualquer tecla para SAIR.");
+
+  // Limpa a serial antes de entrar no loop
+  while (Serial.available()) Serial.read();
+  while (SerialBT.available()) SerialBT.read();
+
+  char buf[80];
+  unsigned long ultimoPrint = 0;
+
+  // Fica no loop ate o usuario enviar algo
+  while (Serial.available() == 0 && SerialBT.available() == 0) {
+    int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
+    int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
+
+    if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
+      logMsg("Parede esquerda < 30mm! Girando pra direita...");
+      girarAteAfastar(true);
+    } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
+      logMsg("Parede direita < 30mm! Girando pra esquerda...");
+      girarAteAfastar(false);
+    }
+
+    // Imprime as leituras a cada 500ms
+    unsigned long agora = millis();
+    if (agora - ultimoPrint >= 500) {
+      ultimoPrint = agora;
+      sprintf(buf, "AJUSTE PAREDE | Esq: %d mm | Dir: %d mm", distEsq, distDir);
+      logMsg(String(buf));
+    }
+
+    delay(20);
+    yield();
+  }
+
+  motors_stop_all();
+  logMsg("Modo ajuste parede encerrado.");
+}
+
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= TESTE GERAL MICROMOUSE =========");
@@ -214,6 +352,8 @@ void mostrarMenu() {
   logMsg("MOV_T    -> Mover 1 Celula Tras (via Encoder)");
   logMsg("GIR_E    -> Girar 90 graus Esquerda");
   logMsg("GIR_D    -> Girar 90 graus Direita");
+  logMsg("DIST_PAR -> Teste distancia parede");
+  logMsg("AJU_PAR  -> Modo continuo: le laterais e gira se < 30mm (qq tecla p/ sair)");
   logMsg("HELP     -> Mostra este menu");
   logMsg("===========================================\n");
 }
@@ -263,6 +403,14 @@ void executarComando(String cmd) {
     encoder_esquerdo_reset();
     encoder_direito_reset();
     logMsg("Encoders zerados com sucesso!");
+  } else if (cmd == "DIST_PAR") {
+    logMsg("Teste distancia parede...");
+    testeDistanciaParede();
+    logMsg("Terminou!");
+  } else if (cmd == "AJU_PAR") {
+    logMsg("Teste ajuste parede...");
+    testeAjusteParede();
+    logMsg("Terminou!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else if (cmd == "CALIBRAR") {
@@ -284,6 +432,15 @@ void setup() {
   // Inicializa I2C
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // MPU aguenta, TOF tbm
+
+  // --- Setup MPU compartilhado (mpu.cpp) ---
+  // Necessario para girar_esquerda_90()/girar_direita_90() (em movimento.cpp),
+  // que agora fecham a malha pelo giroscopio via mpu_atualizar_angulo()/
+  // mpu_get_angulo(). Sem isso o objeto Adafruit_MPU6050 nunca e' inicializado
+  // e o angulo nunca sobe, entao GIR_E/GIR_D so param pelo timeout de seguranca
+  // (girando por 3s em vez de parar nos 90 graus).
+  configurarMPU();
+  mpu_calibrar_offset_giro();
 
   // --- Setup Motores (da biblioteca real) ---
   motors_init();

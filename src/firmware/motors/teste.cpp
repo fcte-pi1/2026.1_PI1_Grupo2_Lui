@@ -1,3 +1,8 @@
+#include <Arduino.h>
+#include "motors.h"
+
+static constexpr int VEL_TESTE = 150;
+
 void loop() {
 
     Serial.println("[TESTE 1/5] Motor ESQUERDO para FRENTE...");

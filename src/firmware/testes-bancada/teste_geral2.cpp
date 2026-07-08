@@ -9,6 +9,7 @@
 #include "../encoder/encoder.h"
 #include "../motors/motors.h"
 #include "../movimento/movimento.h"
+#include "../mpu/mpu.h"
 // --- Pinos MPU6500 & I2C ---
 #define SDA_PIN 21
 #define SCL_PIN 22
@@ -416,6 +417,15 @@ void setup() {
   // Inicializa I2C
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000); // MPU aguenta, TOF tbm
+
+  // --- Setup MPU compartilhado (mpu.cpp) ---
+  // Necessario para girar_esquerda_90()/girar_direita_90() (em movimento.cpp),
+  // que agora fecham a malha pelo giroscopio via mpu_atualizar_angulo()/
+  // mpu_get_angulo(). Sem isso o objeto Adafruit_MPU6050 nunca e' inicializado
+  // e o angulo nunca sobe, entao GIR_E/GIR_D so param pelo timeout de seguranca
+  // (girando por 3s em vez de parar nos 90 graus).
+  configurarMPU();
+  mpu_calibrar_offset_giro();
 
   // --- Setup Motores (da biblioteca real) ---
   motors_init();

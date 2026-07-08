@@ -1,11 +1,13 @@
 // ==========================================
 // AUTONOMO: SEGUE CORREDOR E VIRA NAS ABERTURAS
 // ==========================================
-// Anda para frente, centralizado no corredor, ate a parede da frente ficar a
-// LIMIAR_PAREDE_FRENTE_MM (2 cm). Ai verifica os lados: se o direito ou o
+// Anda para frente em velocidade fixa (o robo ja comeca centralizado, entao
+// nao precisa corrigir durante o trecho reto) ate a parede da frente ficar a
+// LIMIAR_PAREDE_FRENTE_MM (2,5 cm). Ai verifica os lados: se o direito ou o
 // esquerdo tiver LIMIAR_ABERTURA_LATERAL_MM (10 cm) ou mais de distancia,
 // vira pra esse lado (o mais aberto, se os dois abrirem). Sem abertura em
-// nenhum lado, da meia-volta (beco sem saida) e continua.
+// nenhum lado, da meia-volta (beco sem saida). So DEPOIS de virar e que vale
+// a pena centralizar (recalibra a posicao pro novo trecho reto).
 //
 // Nao reimplementa nada que ja funciona — so chama:
 //   girar_esquerda_90() / girar_direita_90() / girar_180()  -> movimento.cpp
@@ -16,6 +18,7 @@
 // Comandos via Bluetooth "micromouse" ou Serial USB (115200):
 //   INICIAR -> comeca a andar sozinho pelo labirinto
 //   PARAR   -> para o robo
+//   STATUS  -> mostra as distancias atuais dos 3 sensores (sem se mover)
 //   HELP    -> mostra este menu
 // ==========================================
 #include <Arduino.h>
@@ -28,25 +31,26 @@
 #include "../distanceSensor/distanceSensor.h"
 #include "../centralizacao/centralizacao.h"
 
-// Mesmo limiar do sistema de emergencia (distanceSensor.h): 20mm = 2cm.
-// Usar o mesmo valor garante que, quando pararmos pra virar, o sistema de
-// emergencia esteja no mesmo estado que estamos verificando aqui.
-#define LIMIAR_PAREDE_FRENTE_MM     LIMITE_EMERGENCIA_TOF_MM
-
+#define LIMIAR_PAREDE_FRENTE_MM     25    // 2,5 cm: para de andar reto e avalia o giro
 #define LIMIAR_ABERTURA_LATERAL_MM  100   // 10 cm: acima disso, considera "abertura"
 
-// PWM da centralizacao durante o trecho reto. Reduzido em relacao ao padrao
-// (VEL_BASE_CENTRALIZADO em centralizacao.h) pra andar com mais cuidado.
-// OBS: centralizar_no_corredor() documenta o parametro como "0-100 percentual",
-// mas internamente ele e usado direto como PWM (constrain 0-100) — ou seja, e
-// sempre um valor baixo de qualquer forma. Ajustar aqui se precisar mais/menos
-// velocidade depois de testar no labirinto real.
-#define VEL_FRENTE_AUTONOMO         80
+// PWM do trecho reto (escala 0-255, igual VEL_PADRAO/VEL_GIRO em movimento.h).
+// Um pouco abaixo de VEL_PADRAO (150) pra andar com mais cuidado.
+#define VEL_FRENTE_AUTONOMO         130
+
+// Depois de virar, roda a centralizacao (PD com os sensores laterais e o
+// giroscopio) por esse tempo, soh pra corrigir a entrada no novo corredor —
+// durante o resto do trecho reto anda em velocidade fixa (o robo ja comeca
+// centralizado, entao nao precisa ficar corrigindo o tempo todo).
+#define DURACAO_CENTRALIZACAO_POS_GIRO_MS  400
+
+#define MPU6500_ADDR 0x68
 
 BluetoothSerial SerialBT;
 String comandoSerial = "";
 String comandoBT = "";
 bool autonomoAtivo = false;
+bool mpuOk = false;
 
 void logMsg(String msg) {
   Serial.println(msg);
@@ -61,19 +65,43 @@ void pararAutonomo() {
 }
 
 void iniciarAutonomo() {
+  if (!mpuOk) {
+    logMsg("[AUTONOMO] ERRO: MPU-6500 nao respondeu no boot — sem giroscopio nao");
+    logMsg("           da pra girar nem centralizar com seguranca. Verifique a");
+    logMsg("           fiacao do MPU (I2C 0x68) e reinicie a ESP32.");
+    return;
+  }
   autonomoAtivo = true;
   atualizar_filtro_media();
-  centralizar_habilitar(true); // zera yaw/erros acumulados pro trecho reto
   logMsg("[AUTONOMO] Iniciado! Seguindo o corredor...");
+}
+
+// Anda reto em velocidade fixa — sem correcao, o robo ja comeca centralizado.
+static void andarReto() {
+  motor_esquerdo_set(VEL_FRENTE_AUTONOMO);
+  motor_direito_set(VEL_FRENTE_AUTONOMO);
+}
+
+// Roda a centralizacao (PD com sensores laterais + giroscopio) por um tempo
+// curto, so pra corrigir a entrada no corredor novo depois de um giro.
+static void centralizarBreve() {
+  centralizar_habilitar(true); // zera yaw/erros acumulados
+  unsigned long inicio = millis();
+  while (millis() - inicio < DURACAO_CENTRALIZACAO_POS_GIRO_MS) {
+    atualizar_filtro_media();
+    centralizar_no_corredor(VEL_FRENTE_AUTONOMO);
+    delay(20);
+  }
+  centralizar_habilitar(false);
 }
 
 // Para nos motores, resolve uma eventual emergencia (recua/afasta da parede
 // se preciso — sem isso o proprio giro abortaria na hora, porque
 // girar_*_90() tambem verifica a emergencia a cada iteracao) e vira pro lado
-// que tiver abertura. Sem abertura em nenhum lado, da meia-volta.
+// que tiver abertura. Sem abertura em nenhum lado, da meia-volta. Depois de
+// virar, centraliza por um instante antes de voltar a andar reto.
 static void decidirEVirar() {
   motors_stop_all();
-  centralizar_habilitar(false);
 
   recuperar_centro_labirinto(); // no-op se nao houver emergencia ativa
 
@@ -100,8 +128,7 @@ static void decidirEVirar() {
     girar_180();
   }
 
-  // Recalibra a centralizacao (zera yaw e erros acumulados) pro novo trecho reto
-  centralizar_habilitar(true);
+  centralizarBreve();
 }
 
 // Chamar em todo loop(): 1 "tick" da navegacao autonoma.
@@ -115,13 +142,26 @@ void autonomo_passo() {
     return;
   }
 
-  centralizar_no_corredor(VEL_FRENTE_AUTONOMO);
+  andarReto();
+}
+
+// Mostra as distancias atuais dos 3 sensores, sem mover o robo. Util pra
+// checar se os sensores estao respondendo antes de mandar INICIAR.
+void mostrarStatus() {
+  atualizar_filtro_media();
+  char buf[110];
+  sprintf(buf, "[STATUS] Frente:%u mm | Esq:%u mm | Dir:%u mm | Autonomo:%s | Emergencia:%s",
+          distancia_frente_mm(), distancia_esquerda_mm(), distancia_direita_mm(),
+          autonomoAtivo ? "ATIVO" : "parado",
+          emergencia_ativa() ? "SIM" : "nao");
+  logMsg(String(buf));
 }
 
 void mostrarMenu() {
   logMsg("\n===== AUTONOMO: SEGUE CORREDOR =====");
   logMsg("INICIAR -> comeca a andar sozinho pelo labirinto");
   logMsg("PARAR   -> para o robo");
+  logMsg("STATUS  -> mostra as distancias atuais dos sensores (sem se mover)");
   logMsg("HELP    -> mostra este menu");
   logMsg("=====================================\n");
 }
@@ -136,6 +176,8 @@ void executarComando(String cmd) {
     iniciarAutonomo();
   } else if (cmd == "PARAR" || cmd == "STOP") {
     pararAutonomo();
+  } else if (cmd == "STATUS") {
+    mostrarStatus();
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();
   } else {
@@ -157,8 +199,22 @@ void setup() {
   motors_init();
   configurarSensoresToF();
 
-  configurarMPU();
-  mpu_calibrar_offset_giro(); // robo tem que estar parado nesse momento
+  // Checagem rapida (nao-bloqueante) antes de chamar configurarMPU(): essa
+  // funcao trava o firmware pra sempre (while(1)) se nao achar o chip — bom
+  // pro robo real (nao anda sem giroscopio), ruim pra depurar por Bluetooth,
+  // porque o setup() nunca chegaria no loop() e HELP/STATUS nunca responderiam.
+  // Aqui, se nao achar, so avisamos e seguimos: HELP/STATUS continuam
+  // funcionando, e INICIAR fica bloqueado ate o MPU ser reconectado.
+  Wire.beginTransmission(MPU6500_ADDR);
+  mpuOk = (Wire.endTransmission() == 0);
+
+  if (mpuOk) {
+    configurarMPU();
+    mpu_calibrar_offset_giro(); // robo tem que estar parado nesse momento
+  } else {
+    Serial.println("[AUTONOMO] AVISO: MPU-6500 nao respondeu no I2C (0x68).");
+    Serial.println("[AUTONOMO] HELP/STATUS funcionam normalmente; INICIAR fica bloqueado.");
+  }
 
   logMsg("\n--- INICIALIZACAO COMPLETA ---");
   mostrarMenu();

@@ -140,6 +140,8 @@ float obterYaw() {
 
 void resetarYaw() {
     yaw_acumulado = 0.0f;
+}
+
 // ── Calibração do offset (bias) do giroscópio em Z ────
 // MEMS de giroscópio sempre tem um pequeno bias mesmo parado; sem descontar
 // esse valor, a integração ao longo de um giro acumula erro (drift).

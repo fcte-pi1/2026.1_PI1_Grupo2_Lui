@@ -238,6 +238,50 @@ void testeDistanciaParede() {
   }
 }
 
+// --- Teste Ajuste Parede (gira ate afastar) ---
+#define TIMEOUT_AJUSTE_MS 3000  // seguranca: para de girar apos 3s
+
+void testeAjusteParede() {
+  int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
+  int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
+
+  char buf[80];
+  sprintf(buf, "AJUSTE PAREDE | Esq: %d mm | Dir: %d mm", distEsq, distDir);
+  logMsg(String(buf));
+
+  if (distEsq != -1 && distEsq < DIST_MIN_PAREDE_MM) {
+    // Perto da parede esquerda -> gira pra direita ate passar de 30mm
+    logMsg("Parede esquerda < 30mm! Girando pra direita ate afastar...");
+    motor_esquerdo_set(VEL_GIRO / 2);
+    motor_direito_set(-(VEL_GIRO / 2));
+    unsigned long inicio = millis();
+    while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
+      distEsq = sensor1.readRangeContinuousMillimeters() - 23;
+      if (distEsq >= DIST_MIN_PAREDE_MM) break;
+      delay(10);
+    }
+    motors_stop_all();
+    sprintf(buf, "Ajustado! Esq: %d mm", distEsq);
+    logMsg(String(buf));
+  } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
+    // Perto da parede direita -> gira pra esquerda ate passar de 30mm
+    logMsg("Parede direita < 30mm! Girando pra esquerda ate afastar...");
+    motor_esquerdo_set(-(VEL_GIRO / 2));
+    motor_direito_set(VEL_GIRO / 2);
+    unsigned long inicio = millis();
+    while (millis() - inicio < TIMEOUT_AJUSTE_MS) {
+      distDir = sensor3.readRangeContinuousMillimeters() - 37;
+      if (distDir >= DIST_MIN_PAREDE_MM) break;
+      delay(10);
+    }
+    motors_stop_all();
+    sprintf(buf, "Ajustado! Dir: %d mm", distDir);
+    logMsg(String(buf));
+  } else {
+    logMsg("Distancia OK, nenhum ajuste necessario.");
+  }
+}
+
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= TESTE GERAL MICROMOUSE =========");
@@ -254,6 +298,7 @@ void mostrarMenu() {
   logMsg("GIR_E    -> Girar 90 graus Esquerda");
   logMsg("GIR_D    -> Girar 90 graus Direita");
   logMsg("DIST_PAR -> Teste distancia parede");
+  logMsg("AJU_PAR  -> Gira ate ficar a +30mm da parede lateral");
   logMsg("HELP     -> Mostra este menu");
   logMsg("===========================================\n");
 }
@@ -306,6 +351,10 @@ void executarComando(String cmd) {
   } else if (cmd == "DIST_PAR") {
     logMsg("Teste distancia parede...");
     testeDistanciaParede();
+    logMsg("Terminou!");
+  } else if (cmd == "AJU_PAR") {
+    logMsg("Teste ajuste parede...");
+    testeAjusteParede();
     logMsg("Terminou!");
   } else if (cmd == "HELP" || cmd == "?") {
     mostrarMenu();

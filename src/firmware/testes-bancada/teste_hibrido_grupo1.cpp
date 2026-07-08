@@ -82,7 +82,10 @@ void calibrarOffsetGiro() {
 }
 
 void mpu_update() {
-  float giroZ_dps = lerGiroZ_dps() - offsetGiroZ_dps;
+  // INVERTIDO (-): Como descobrimos no teste da bussola, o MPU deste robo
+  // faz o rumo aumentar ao virar pra direita. Sem inverter aqui,
+  // o PID do G1 vai surtar e o robo vai girar para sempre.
+  float giroZ_dps = -(lerGiroZ_dps() - offsetGiroZ_dps);
   unsigned long agora_us = micros();
   if (ultimaAtualizacao_us == 0) {
     ultimaAtualizacao_us = agora_us;

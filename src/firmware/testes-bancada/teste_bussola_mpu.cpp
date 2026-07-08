@@ -26,6 +26,14 @@
 #define REG_PWR_MGMT_1   0x6B
 #define REG_GYRO_ZOUT_H  0x47
 
+// --- Motores (DRV8833) — mesmos pinos de motors.cpp/pins.h ---
+// Este teste NAO usa motores; so garantimos que fiquem DESLIGADOS
+// (pinos em LOW = coast) para nao ficarem chiando/tremendo.
+#define PIN_MOT1_IN1 14 // AIN1: Motor esquerdo (M1)
+#define PIN_MOT1_IN2 27 // AIN2: Motor esquerdo (M1)
+#define PIN_MOT2_IN1 26 // BIN1: Motor direito (M2)
+#define PIN_MOT2_IN2 25 // BIN2: Motor direito (M2)
+
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
 // integramos. Ajuste para um pouco acima do ruido residual do gyro.
@@ -187,6 +195,12 @@ void setup() {
 
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000);
+
+  // --- Motores DESLIGADOS: pinos do DRV8833 em LOW (coast) ---
+  pinMode(PIN_MOT1_IN1, OUTPUT); digitalWrite(PIN_MOT1_IN1, LOW);
+  pinMode(PIN_MOT1_IN2, OUTPUT); digitalWrite(PIN_MOT1_IN2, LOW);
+  pinMode(PIN_MOT2_IN1, OUTPUT); digitalWrite(PIN_MOT2_IN1, LOW);
+  pinMode(PIN_MOT2_IN2, OUTPUT); digitalWrite(PIN_MOT2_IN2, LOW);
 
   // --- Setup MPU6500 ---
   escreverReg(REG_PWR_MGMT_1, 0x00); // acorda o MPU

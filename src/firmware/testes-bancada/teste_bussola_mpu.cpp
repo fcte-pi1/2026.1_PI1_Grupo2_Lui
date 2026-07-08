@@ -40,9 +40,10 @@
 #define CH_MOT2_IN1 2
 #define CH_MOT2_IN2 3
 
-// PWM do giro em DUTY DIRETO (0-255). Ajustavel em runtime pelo comando PWM.
-// Reduzido para 150 porque o log mostrou inercia absurda no PWM 200.
-#define VEL_GIRO_PWM_PADRAO 150 // duty PWM do giro no cruzeiro (0-255)
+// Valor BRUTO igual ao movimento.h/teste_geral: VEL_GIRO = 120. O motorSet
+// satura em 100 na hora de aplicar, entao 120 = torque cheio no cruzeiro e
+// ~60 (120/2) na frenagem. Ajustavel em runtime pelo comando VEL.
+#define VEL_GIRO_PADRAO 120 // valor bruto da velocidade do giro (igual teste_geral)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -51,27 +52,19 @@
 // Intervalo entre atualizacoes de rumo no modo BUSSOLA (streaming)
 #define BUSSOLA_PERIODO_MS 200
 
-// --- Parametros do giro PROPORCIONAL (3 fases) ---
+// --- Parametros do giro (mesma logica do movimento.cpp) ---
 #define PASSO_GIRO_GRAUS      90.0f  // cada GIR_D/GIR_E soma/subtrai isso no alvo
-#define MARGEM_PARADA_GRAUS    1.5f  // margem final: abaixo disso = no alvo (graus)
-#define TIMEOUT_GIRO_MS       5000   // seguranca
+#define ZONA_FRENAGEM_GRAUS   20.0f  // ultimos X graus: reduz a velocidade a metade
+#define MARGEM_PARADA_GRAUS    2.0f  // dentro desta margem consideramos "no alvo"
+#define TIMEOUT_GIRO_MS       4000   // seguranca
 
-// Fase 1 — Desaceleracao proporcional por zonas:
-// O PWM cai progressivamente conforme se aproxima do alvo.
-// Zona 1: >40 graus faltando -> PWM cheio (cruzeiro)
-// Zona 2: 40~20 graus        -> 60% do PWM
-// Zona 3: 20~8 graus         -> 40% do PWM
-// Zona 4: 8~CORTE graus      -> 25% do PWM (velocidade minima controlavel)
-#define ZONA1_GRAUS           40.0f  // acima disso: cruzeiro (100%)
-#define ZONA2_GRAUS           20.0f  // acima disso: 60%
-#define ZONA3_GRAUS            8.0f  // acima disso: 40%
-// Abaixo de ZONA3 ate o corte: 25%
-
-// =====================================================================
-// PARAMETROS DE TUNAGEM — todos ajustaveis em runtime via Bluetooth!
-// Use os comandos CORTE, GANHO, PMIN, PMAX, MARGEM, ASSENT pra mudar.
-// Use PARAMS pra ver os valores atuais. Use BENCH pra testar.
-// =====================================================================
+// --- Correcao de overshoot (malha fechada apos a freada) ---
+// Depois do giro rapido, o embalo (inercia) joga o robo alguns graus alem do
+// alvo. Estes parametros controlam o ajuste fino que traz o rumo de volta.
+#define VEL_CORRECAO_GIRO       60   // velocidade BRUTA (baixa) do ajuste fino
+#define ASSENTAMENTO_MS        150   // tempo parado p/ a inercia terminar antes de medir
+#define PULSO_CORRECAO_MS       80   // duracao de cada pulso de correcao
+#define MAX_PULSOS_CORRECAO      8   // seguranca: no. maximo de pulsos
 
 // --- Variaveis Globais ---
 BluetoothSerial SerialBT;
@@ -82,35 +75,9 @@ String comandoSerial = "";
 float offsetGiroZ_dps = 0.0f;          // bias do gyro em graus/s
 float rumo_deg = 0.0f;                  // heading atual, normalizado 0-360
 float alvoRumo_deg = 0.0f;              // alvo ACUMULADO do giro (grade de 90), 0-360
-int   pwmGiro = VEL_GIRO_PWM_PADRAO;    // duty PWM do giro (0-255), ajustavel via PWM
+int   velGiro = VEL_GIRO_PADRAO;        // velocidade do giro (%), ajustavel via VEL
 unsigned long ultimaAtualizacao_us = 0;
 bool bussolaStreaming = false;          // modo BUSSOLA ligado?
-
-// --- Parametros de tunagem (ajustaveis em runtime) ---
-// Corte antecipado: para o motor ANTES do alvo. A inercia carrega o resto.
-// Se o robo PARA ANTES do alvo: diminua. Se PASSA DO alvo: aumente.
-float corteAntecipadoGraus = 3.0f;
-
-// Correcao proporcional: PWM = clamp(erro * ganho, pMin, pMax)
-int   correcaoPwmMin  = 80;    // duty minimo pra vencer friccao estatica
-int   correcaoPwmMax  = 150;   // duty maximo da correcao
-float correcaoGanho   = 12.0f; // ganho proporcional
-
-// Margem de precisao: abaixo disso, consideramos "no alvo"
-float margemParadaGraus = 1.5f;
-
-// Tempo de assentamento (ms) — espera a inercia terminar antes de medir
-unsigned long assentamentoMs = 200;
-
-// Pulso de correcao: duracao maxima de cada micro-pulso
-unsigned long pulsoCorrecaoMs = 100;
-
-// Numero maximo de pulsos de correcao (seguranca)
-int maxPulsosCorrecao = 10;
-
-// Erro medido ao final da Fase 1 (antes da correcao). Usado pelo AUTOTUNE
-// para saber quanto a inercia contribuiu (positivo = passou, negativo = faltou).
-float erroFase1 = 0.0f;
 
 // --- Utilitarias ---
 void logMsg(String msg) {
@@ -126,30 +93,30 @@ void escreverReg(uint8_t reg, uint8_t valor) {
 }
 
 // --- Motores (logica copiada de motors.cpp, sem include) ---
-void motorSet(uint8_t chFwd, uint8_t chBwd, int pwm) {
-  // pwm em DUTY DIRETO: -255..255 (sinal = sentido, modulo = duty)
-  pwm = constrain(pwm, -255, 255);
+void motorSet(uint8_t chFwd, uint8_t chBwd, int velocidade_percentual) {
+  velocidade_percentual = constrain(velocidade_percentual, -100, 100);
+  int pwm = map(abs(velocidade_percentual), 0, 100, 0, 255);
 
-  if (pwm > 0) {
+  if (velocidade_percentual > 0) {
     ledcWrite(chFwd, pwm);
     ledcWrite(chBwd, 0);
-  } else if (pwm < 0) {
+  } else if (velocidade_percentual < 0) {
     ledcWrite(chFwd, 0);
-    ledcWrite(chBwd, -pwm);
+    ledcWrite(chBwd, pwm);
   } else {
     ledcWrite(chFwd, 0);
     ledcWrite(chBwd, 0);
   }
 }
 
-void motorEsquerdoSet(int pwm) {
+void motorEsquerdoSet(int velocidade) {
   // Invertido via software: polaridade dos fios trocada na placa
-  motorSet(CH_MOT1_IN1, CH_MOT1_IN2, -pwm);
+  motorSet(CH_MOT1_IN1, CH_MOT1_IN2, -velocidade);
 }
 
-void motorDireitoSet(int pwm) {
+void motorDireitoSet(int velocidade) {
   // Invertido via software: polaridade dos fios trocada na placa
-  motorSet(CH_MOT2_IN1, CH_MOT2_IN2, -pwm);
+  motorSet(CH_MOT2_IN1, CH_MOT2_IN2, -velocidade);
 }
 
 void motoresParar() {
@@ -221,9 +188,7 @@ String direcaoCardeal(float rumo) {
 
 // --- Atualiza o rumo integrando o gyro (com NMNI) ---
 void atualizarBussola() {
-  // INVERTIDO (-): O log provou que ao virar pra direita o rumo AUMENTAVA,
-  // abortando a Fase 1 logo no inicio (falta > 180). O rumo DEVE diminuir.
-  float giroZ_dps = -(lerGiroZ_dps() - offsetGiroZ_dps);
+  float giroZ_dps = lerGiroZ_dps() - offsetGiroZ_dps;
 
   unsigned long agora_us = micros();
   if (ultimaAtualizacao_us == 0) {
@@ -283,145 +248,73 @@ void assentarInercia(unsigned long ms) {
     delay(2);
   }
 }
-void assentarInerciaDefault() { assentarInercia(assentamentoMs); }
-
-// --- Calcula o PWM proporcional a distancia que falta (Fase 1) ---------------
-// Retorna um valor de PWM entre ~25% e 100% do pwmGiro, conforme a zona.
-int pwmProporcional(float falta) {
-  if (falta > ZONA1_GRAUS)  return pwmGiro;                        // 100% cruzeiro
-  if (falta > ZONA2_GRAUS)  return (int)(pwmGiro * 0.60f);         // 60%
-  if (falta > ZONA3_GRAUS)  return (int)(pwmGiro * 0.40f);         // 40%
-  return (int)(pwmGiro * 0.25f);                                   // 25% minimo
-}
-
-// --- Mostra todos os parametros de tunagem atuais ---
-void mostrarParams() {
-  char buf[80];
-  logMsg("\n--- PARAMETROS DE TUNAGEM ATUAIS ---");
-  sprintf(buf, "PWM cruzeiro:   %d (0-255)", pwmGiro);       logMsg(buf);
-  sprintf(buf, "CORTE antecip:  %.1f graus", corteAntecipadoGraus); logMsg(buf);
-  sprintf(buf, "MARGEM parada:  %.1f graus", margemParadaGraus);    logMsg(buf);
-  sprintf(buf, "GANHO correcao: %.1f", correcaoGanho);              logMsg(buf);
-  sprintf(buf, "PMIN correcao:  %d", correcaoPwmMin);               logMsg(buf);
-  sprintf(buf, "PMAX correcao:  %d", correcaoPwmMax);               logMsg(buf);
-  sprintf(buf, "ASSENT (ms):    %lu", assentamentoMs);              logMsg(buf);
-  sprintf(buf, "PULSO (ms):     %lu", pulsoCorrecaoMs);             logMsg(buf);
-  sprintf(buf, "MAX PULSOS:     %d", maxPulsosCorrecao);            logMsg(buf);
-  logMsg("------------------------------------\n");
-}
 
 // --- Gira ate a bussola bater no ALVO ABSOLUTO acumulado (alvoRumo_deg) -----
-// CONTROLE PROPORCIONAL EM 3 FASES:
-//
-// Fase 1 (Cruzeiro + Desaceleracao proporcional):
-//   O PWM diminui conforme se aproxima do alvo, em 4 zonas. Isso reduz a
-//   energia cinetica gradualmente, minimizando o overshoot.
-//
-// Fase 1b (Corte antecipado por inercia):
-//   O motor e cortado CORTE_ANTECIPADO_GRAUS ANTES do alvo. A inercia do
-//   robo carrega os graus restantes. Assim a parada cai perto do alvo.
-//
-// Fase 2 (Ajuste fino proporcional):
-//   Apos assentar, mede o erro real. Se ainda estiver fora da margem,
-//   aplica pulsos curtos com PWM PROPORCIONAL ao erro (quanto menor o
-//   erro, menor a forca), evitando oscilacao.
+// Mesma logica do girar_com_giroscopio (movimento.cpp): liga o motor na
+// velocidade cheia (VEL_GIRO) e reduz pela metade na zona de frenagem. So que
+// o criterio de parada e o rumo ABSOLUTO da bussola chegar no alvo (grade de
+// 90 graus). Assim os giros sao ACUMULADOS e o drift e corrigido a cada giro.
 void girarParaAlvo(float alvo, bool paraDireita) {
   int sinal_esq = paraDireita ? +1 : -1;   // mesmos sentidos do movimento.cpp
   int sinal_dir = paraDireita ? -1 : +1;
 
+  motorEsquerdoSet(sinal_esq * velGiro);
+  motorDireitoSet(sinal_dir * velGiro);
+
   unsigned long inicio = millis();
-  int pwmAtual = pwmGiro;
+  bool freando = false;
 
-  motorEsquerdoSet(sinal_esq * pwmAtual);
-  motorDireitoSet(sinal_dir * pwmAtual);
-
-  // ══════════════════════════════════════════════════════════════════════
-  // FASE 1: Desaceleracao proporcional por zonas + corte antecipado
-  // ══════════════════════════════════════════════════════════════════════
   while (true) {
     atualizarBussola();
     float falta = faltaParaAlvo(alvo, paraDireita);
 
-    // Corte antecipado: para o motor ANTES do alvo pra inercia completar
-    if (falta <= corteAntecipadoGraus) break;
-    // Passou do ponto: a falta "da a volta" (>180) -> para imediatamente
+    // Chegou (com margem: a inercia completa o resto)
+    if (falta <= MARGEM_PARADA_GRAUS) break;
+    // Passou do ponto: a falta "da a volta" (>180) -> para pra nao girar de novo
     if (falta > 180.0f) break;
-    if (millis() - inicio > TIMEOUT_GIRO_MS) {
-      logMsg("[GIRO] TIMEOUT na Fase 1!");
-      break;
-    }
+    if (millis() - inicio > TIMEOUT_GIRO_MS) break;
 
-    // Atualiza o PWM proporcionalmente a distancia restante
-    int novoPwm = pwmProporcional(falta);
-    if (novoPwm != pwmAtual) {
-      pwmAtual = novoPwm;
-      motorEsquerdoSet(sinal_esq * pwmAtual);
-      motorDireitoSet(sinal_dir * pwmAtual);
+    // Perto do alvo, reduz a velocidade pela metade pra nao passar do ponto
+    if (!freando && falta <= ZONA_FRENAGEM_GRAUS) {
+      freando = true;
+      motorEsquerdoSet(sinal_esq * (velGiro / 2));
+      motorDireitoSet(sinal_dir * (velGiro / 2));
     }
     delay(2);
   }
   motoresParar();
 
-  // Mede o erro da Fase 1 (antes da correcao) — usado pelo AUTOTUNE
-  assentarInerciaDefault();
-  erroFase1 = erroParaAlvo(alvo);
+  // --- Fase 2: correcao de overshoot (malha fechada) ------------------------
+  // A freada acima deixa a inercia "completar o resto", mas em velocidade alta
+  // esse resto passa MUITO do alvo. Aqui deixamos assentar, medimos o erro real
+  // pela bussola e corrigimos em pulsos curtos e lentos ate cair na margem.
+  for (int pulso = 0; pulso < MAX_PULSOS_CORRECAO; pulso++) {
+    assentarInercia(ASSENTAMENTO_MS);       // espera parar de vez e atualiza o rumo
 
-  {
-    char b[80];
-    sprintf(b, "[F1] Erro pos-inercia: %.1f graus", erroFase1);
-    logMsg(String(b));
-  }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // FASE 2: P-CONTROLLER CONTINUO (substitui os pulsos fixos)
-  // ══════════════════════════════════════════════════════════════════════
-  // Roda em loop continuo: le o erro, calcula o PWM proporcional, aplica.
-  // Quando o erro fica dentro da margem por TEMPO_ESTAVEL_MS seguidos,
-  // considera convergido e para. Timeout de seguranca de 5 segundos.
-  const unsigned long TIMEOUT_CORRECAO_MS = 5000;
-  const unsigned long TEMPO_ESTAVEL_MS = 150;  // precisa ficar estavel por 150ms
-
-  unsigned long inicioCorrecao = millis();
-  unsigned long dentroMargem_desde = 0;
-  bool convergiu = false;
-
-  while (millis() - inicioCorrecao < TIMEOUT_CORRECAO_MS) {
-    atualizarBussola();
     float erro = erroParaAlvo(alvo);
-    float erroAbs = fabsf(erro);
+    if (fabsf(erro) <= MARGEM_PARADA_GRAUS) break;  // ja esta no alvo
 
-    // Dentro da margem? Conta tempo estavel
-    if (erroAbs <= margemParadaGraus) {
-      motoresParar();
-      if (dentroMargem_desde == 0) dentroMargem_desde = millis();
-      if (millis() - dentroMargem_desde >= TEMPO_ESTAVEL_MS) {
-        convergiu = true;
-        break;
-      }
-    } else {
-      dentroMargem_desde = 0;  // saiu da margem, reseta o contador
+    // Gira no sentido que REDUZ o erro (independe do sentido do giro original)
+    bool corrigirEsq = (erro > 0.0f);       // erro>0 -> aumentar rumo -> esquerda
+    int se = corrigirEsq ? -1 : +1;
+    int sd = corrigirEsq ? +1 : -1;
+    motorEsquerdoSet(se * VEL_CORRECAO_GIRO);
+    motorDireitoSet(sd * VEL_CORRECAO_GIRO);
 
-      // PWM proporcional ao erro
-      int pwmCorrecao = (int)(erroAbs * correcaoGanho);
-      pwmCorrecao = constrain(pwmCorrecao, correcaoPwmMin, correcaoPwmMax);
-
-      // Gira no sentido que reduz o erro
-      bool corrigirEsq = (erro > 0.0f);
-      int se = corrigirEsq ? -1 : +1;
-      int sd = corrigirEsq ? +1 : -1;
-      motorEsquerdoSet(se * pwmCorrecao);
-      motorDireitoSet(sd * pwmCorrecao);
+    // Pulso curto: corta assim que entrar na margem pra nao passar de novo
+    unsigned long tPulso = millis();
+    while (millis() - tPulso < PULSO_CORRECAO_MS) {
+      atualizarBussola();
+      if (fabsf(erroParaAlvo(alvo)) <= MARGEM_PARADA_GRAUS) break;
+      delay(2);
     }
-    delay(2);
+    motoresParar();
   }
-  motoresParar();
-  assentarInerciaDefault();
+  assentarInercia(ASSENTAMENTO_MS);         // assenta e mede o resultado final
 
-  char buf[120];
-  float erroFinal = erroParaAlvo(alvo);
-  sprintf(buf, "Giro %s! Alvo:%.0f | Rumo:%.1f | ErroF1:%.1f | ErroFinal:%.1f",
-          convergiu ? "OK" : "TIMEOUT",
-          alvo, rumo_deg, erroFase1, erroFinal);
+  char buf[80];
+  sprintf(buf, "Giro concluido! Alvo: %.0f | Rumo agora: %.1f | Erro: %.1f",
+          alvo, rumo_deg, erroParaAlvo(alvo));
   logMsg(String(buf));
 }
 
@@ -435,229 +328,21 @@ void girarEsquerda90() {
   girarParaAlvo(alvoRumo_deg, false);
 }
 
-// ==========================================================================
-// BENCH: Teste de bancada automatizado
-// Faz N giros de 90 graus (padrao: 4 = volta completa 360), coleta o erro
-// de cada giro, e mostra estatisticas (media, maximo, desvio padrao).
-// Uso: BENCH        -> 4 giros pra direita (padrao)
-//      BENCH 8      -> 8 giros pra direita (2 voltas)
-//      BENCH 4 E    -> 4 giros pra esquerda
-//      BENCH 6 D    -> 6 giros pra direita
-// ==========================================================================
-void executarBench(int nGiros, bool paraDireita) {
-  char buf[120];
-  sprintf(buf, "\n=== BENCH: %d giros de 90 pra %s ===",
-          nGiros, paraDireita ? "DIREITA" : "ESQUERDA");
-  logMsg(String(buf));
-  mostrarParams();
-
-  // Zera a referencia antes do teste
-  definirNorte();
-  delay(500);
-
-  float erros[20];  // max 20 giros por bench
-  nGiros = constrain(nGiros, 1, 20);
-
-  float somaErro = 0.0f;
-  float somaErro2 = 0.0f;
-  float erroMax = 0.0f;
-  int   precisos = 0;
-
-  for (int i = 0; i < nGiros; i++) {
-    sprintf(buf, "\n--- Giro %d/%d ---", i + 1, nGiros);
-    logMsg(String(buf));
-
-    float alvoAntes = alvoRumo_deg;
-    if (paraDireita) {
-      girarDireita90();
-    } else {
-      girarEsquerda90();
-    }
-
-    float erro = fabsf(erroParaAlvo(alvoRumo_deg));
-    erros[i] = erro;
-    somaErro += erro;
-    somaErro2 += erro * erro;
-    if (erro > erroMax) erroMax = erro;
-    if (erro <= margemParadaGraus) precisos++;
-
-    // Pausa entre giros pra inercia assentar de vez
-    delay(800);
-  }
-
-  // --- Estatisticas ---
-  float media = somaErro / nGiros;
-  float variancia = (somaErro2 / nGiros) - (media * media);
-  float desvio = (variancia > 0.0f) ? sqrtf(variancia) : 0.0f;
-
-  logMsg("\n========== RESULTADO DO BENCH ==========");
-  logMsg("Giro | Alvo esperado | Erro (graus)");
-  logMsg("-----|--------------|-------------");
-  for (int i = 0; i < nGiros; i++) {
-    float alvoEsp;
-    if (paraDireita) {
-      alvoEsp = normalizar360(-PASSO_GIRO_GRAUS * (i + 1));
-    } else {
-      alvoEsp = normalizar360(PASSO_GIRO_GRAUS * (i + 1));
-    }
-    sprintf(buf, "  %2d |    %5.0f      |   %5.1f  %s",
-            i + 1, alvoEsp, erros[i],
-            (erros[i] <= margemParadaGraus) ? "OK" : "FORA");
-    logMsg(String(buf));
-  }
-  logMsg("----------------------------------------");
-  sprintf(buf, "Media:  %.2f graus", media);    logMsg(buf);
-  sprintf(buf, "Maximo: %.2f graus", erroMax);  logMsg(buf);
-  sprintf(buf, "Desvio: %.2f graus", desvio);   logMsg(buf);
-  sprintf(buf, "Precisos: %d/%d (margem: %.1f)", precisos, nGiros, margemParadaGraus);
-  logMsg(String(buf));
-
-  sprintf(buf, "Rumo final: %.1f (esperado: %.1f)",
-          rumo_deg, alvoRumo_deg);
-  logMsg(String(buf));
-  logMsg("========================================\n");
-
-  // Dica automatica baseada nos resultados
-  if (media > 3.0f) {
-    logMsg("[DICA] Erro medio alto. Tente: CORTE + alguns graus.");
-  } else if (media > margemParadaGraus && desvio < 1.5f) {
-    logMsg("[DICA] Erro consistente. Ajuste CORTE (erro sistematico).");
-  } else if (desvio > 2.0f) {
-    logMsg("[DICA] Erro muito variavel. Reduza PWM ou aumente GANHO.");
-  } else {
-    logMsg("[DICA] Resultados bons! Tunagem OK.");
-  }
-}
-
-// --- Funcao auxiliar: extrai float de um comando (ex: "CORTE 4.5" -> 4.5) ---
-float extrairFloat(String cmd, int posEspaco) {
-  return cmd.substring(posEspaco + 1).toFloat();
-}
-int extrairInt(String cmd, int posEspaco) {
-  return cmd.substring(posEspaco + 1).toInt();
-}
-
-// ==========================================================================
-// AUTOTUNE: Calibracao automatica do CORTE por busca binaria
-//
-// Algoritmo:
-//   1. Roda 2 giros de teste e mede o erro medio da FASE 1 (antes da
-//      correcao). Esse erro reflete diretamente o efeito da inercia.
-//   2. Se o erro e sistematico (mesmo sinal nos 2 giros):
-//      - Erro positivo (passou do alvo) -> AUMENTA o CORTE
-//      - Erro negativo (parou antes)    -> DIMINUI o CORTE
-//      O ajuste e proporcional: metade do erro medio.
-//   3. Repete ate o erro medio cair dentro da margem ou esgotar tentativas.
-//   4. Mostra os valores finais calibrados.
-//
-// Uso: AUTOTUNE     -> calibra pra direita (padrao)
-//      AUTOTUNE E   -> calibra pra esquerda
-// ==========================================================================
-void executarAutotune(bool paraDireita) {
-  char buf[120];
-  const int MAX_ITER = 6;       // maximo de iteracoes de busca
-  const int GIROS_POR_ITER = 2; // giros por iteracao (mais = mais preciso, mais lento)
-
-  sprintf(buf, "\n=== AUTOTUNE: calibrando CORTE pra %s ===",
-          paraDireita ? "DIREITA" : "ESQUERDA");
-  logMsg(String(buf));
-  sprintf(buf, "CORTE inicial: %.1f graus", corteAntecipadoGraus);
-  logMsg(String(buf));
-
-  for (int iter = 0; iter < MAX_ITER; iter++) {
-    sprintf(buf, "\n--- Iteracao %d/%d (CORTE=%.1f) ---", iter + 1, MAX_ITER, corteAntecipadoGraus);
-    logMsg(String(buf));
-
-    // Zera referencia
-    definirNorte();
-    delay(500);
-
-    // Roda giros de teste e coleta o erro da Fase 1
-    float somaErroF1 = 0.0f;
-    for (int g = 0; g < GIROS_POR_ITER; g++) {
-      if (paraDireita) {
-        girarDireita90();
-      } else {
-        girarEsquerda90();
-      }
-      somaErroF1 += erroFase1;  // erro SINALIZADO da fase 1
-
-      sprintf(buf, "  Giro %d: erro Fase1=%.1f  erro Final=%.1f",
-              g + 1, erroFase1, erroParaAlvo(alvoRumo_deg));
-      logMsg(String(buf));
-      delay(600);
-    }
-
-    float mediaErroF1 = somaErroF1 / GIROS_POR_ITER;
-    sprintf(buf, "  Media erro Fase1: %.2f graus", mediaErroF1);
-    logMsg(String(buf));
-
-    // Convergiu? O erro da Fase 1 esta dentro de uma margem aceitavel?
-    // Usamos 2x a margem de parada porque a Fase 2 corrige o resto.
-    if (fabsf(mediaErroF1) <= margemParadaGraus * 2.0f) {
-      logMsg("\n>>> CONVERGIU! Erro da Fase 1 dentro da tolerancia.");
-      break;
-    }
-
-    // Ajusta o CORTE: se o erro e negativo (passou do alvo na direcao
-    // do giro), o corte precisa ser MAIOR pra frear mais cedo.
-    // O sinal depende de como erroParaAlvo reporta:
-    //   paraDireita: rumo DIMINUI -> se passou, erro < 0 -> CORTE sobe
-    //   paraEsquerda: rumo AUMENTA -> se passou, erro > 0 -> CORTE sobe
-    // Simplificando: se o erro da F1 mostra overshoot, aumenta CORTE.
-    // Overshoot na F1 = o robo foi ALEM do alvo = |falta| virou negativa.
-    //
-    // Na pratica: mediaErroF1 negativo = passou do ponto pra direita
-    //              mediaErroF1 positivo = nao chegou (ou passou pra esquerda)
-    // Ajuste = metade do erro, na direcao oposta.
-    float ajuste = -mediaErroF1 * 0.5f;
-    float novoCorte = corteAntecipadoGraus + ajuste;
-    novoCorte = constrain(novoCorte, 0.0f, 30.0f);
-
-    sprintf(buf, "  Ajuste: %+.1f -> novo CORTE: %.1f", ajuste, novoCorte);
-    logMsg(String(buf));
-
-    corteAntecipadoGraus = novoCorte;
-  }
-
-  // Resultado final: roda um BENCH curto pra validar
-  logMsg("\n--- Validacao final (BENCH 4) ---");
-  executarBench(4, paraDireita);
-
-  logMsg("\n========== AUTOTUNE CONCLUIDO ==========");
-  mostrarParams();
-  logMsg("Anote estes valores se ficou bom!");
-  logMsg("========================================\n");
-}
-
 // --- Menu ---
 void mostrarMenu() {
   logMsg("\n========= BUSSOLA (GYRO MPU6500) =========");
-  logMsg("--- COMANDOS BASICOS ---");
+  logMsg("MENU DE COMANDOS:");
   logMsg("NORTE    -> Define o rumo atual como Norte (zera)");
-  logMsg("RUMO     -> Mostra o rumo atual (0-360)");
-  logMsg("GIR_D    -> Gira 90 pra Direita");
-  logMsg("GIR_E    -> Gira 90 pra Esquerda");
-  logMsg("BUS_ON   -> Streaming continuo do rumo");
-  logMsg("BUS_OFF  -> Desliga streaming");
-  logMsg("CALIBRAR -> Recalibra offset do gyro");
-  logMsg("");
-  logMsg("--- BANCADA (TUNAGEM) ---");
-  logMsg("AUTOTUNE   -> Calibra CORTE automaticamente (D)");
-  logMsg("AUTOTUNE E -> Calibra CORTE pra Esquerda");
-  logMsg("BENCH      -> 4 giros D (volta completa)");
-  logMsg("BENCH n    -> n giros pra Direita");
-  logMsg("BENCH n E  -> n giros pra Esquerda");
-  logMsg("PARAMS     -> Mostra parametros atuais");
-  logMsg("PWM n      -> PWM cruzeiro (0-255)");
-  logMsg("CORTE n    -> Corte antecipado (graus)");
-  logMsg("MARGEM n   -> Margem de precisao (graus)");
-  logMsg("GANHO n    -> Ganho proporcional correcao");
-  logMsg("PMIN n     -> PWM minimo da correcao");
-  logMsg("PMAX n     -> PWM maximo da correcao");
-  logMsg("ASSENT n   -> Tempo assentamento (ms)");
-  logMsg("PULSO n    -> Duracao pulso correcao (ms)");
-  logMsg("HELP       -> Este menu");
+  logMsg("RUMO     -> Mostra o rumo atual (0-360) e o ponto cardeal");
+  logMsg("GIR_D    -> Gira 90 graus pra Direita (mede pela bussola)");
+  logMsg("GIR_E    -> Gira 90 graus pra Esquerda (mede pela bussola)");
+  logMsg("VEL n    -> Ajusta a velocidade do giro (%). Ex.: VEL 80");
+  logMsg("VEL      -> Mostra a velocidade do giro atual");
+  logMsg("BUS_ON   -> Liga o streaming continuo do rumo (200ms)");
+  logMsg("BUS_OFF  -> Desliga o streaming continuo do rumo");
+  logMsg("CALIBRAR -> Recalibra o offset do gyro (robo parado)");
+  logMsg("HELP     -> Mostra este menu");
+  logMsg("Obs: heading e RELATIVO (sem magnetometro) e sofre drift.");
   logMsg("==========================================\n");
 }
 
@@ -666,8 +351,6 @@ void executarComando(String cmd) {
   cmd.toUpperCase();
   if (cmd.length() == 0) return;
   logMsg(">> Comando: " + cmd);
-
-  char buf[80];
 
   if (cmd == "NORTE") {
     definirNorte();
@@ -679,97 +362,18 @@ void executarComando(String cmd) {
   } else if (cmd == "GIR_E") {
     logMsg("Girando 90 graus pra ESQUERDA...");
     girarEsquerda90();
-
-  // --- AUTOTUNE ---
-  } else if (cmd == "AUTOTUNE" || cmd.startsWith("AUTOTUNE ")) {
-    bool dir = true;
-    if (cmd.endsWith(" E")) dir = false;
-    executarAutotune(dir);
-
-  // --- BENCH ---
-  } else if (cmd == "BENCH" || cmd.startsWith("BENCH ")) {
-    int n = 4;
-    bool dir = true;
-    if (cmd.startsWith("BENCH ")) {
-      String args = cmd.substring(6);
-      args.trim();
-      // BENCH n ou BENCH n E/D
-      int espaco = args.indexOf(' ');
-      if (espaco > 0) {
-        n = args.substring(0, espaco).toInt();
-        String sentido = args.substring(espaco + 1);
-        sentido.trim();
-        if (sentido == "E") dir = false;
-      } else {
-        n = args.toInt();
-      }
-      if (n <= 0) n = 4;
-    }
-    executarBench(n, dir);
-
-  // --- PARAMS ---
-  } else if (cmd == "PARAMS") {
-    mostrarParams();
-
-  // --- PWM ---
-  } else if (cmd == "PWM" || cmd.startsWith("PWM ")) {
-    if (cmd == "PWM") {
-      sprintf(buf, "PWM do giro: %d (0-255)", pwmGiro);
+  } else if (cmd == "VEL" || cmd.startsWith("VEL ")) {
+    char buf[48];
+    if (cmd == "VEL") {
+      // sem argumento: so mostra a velocidade atual
+      sprintf(buf, "Velocidade do giro: %d%%", velGiro);
       logMsg(String(buf));
     } else {
-      pwmGiro = constrain(extrairInt(cmd, 3), 0, 255);
-      sprintf(buf, "PWM -> %d", pwmGiro); logMsg(buf);
+      int v = cmd.substring(4).toInt();          // texto depois de "VEL "
+      velGiro = constrain(v, 1, 120);            // valor bruto (motorSet satura em 100)
+      sprintf(buf, "Velocidade do giro ajustada para %d%%", velGiro);
+      logMsg(String(buf));
     }
-
-  // --- CORTE ---
-  } else if (cmd.startsWith("CORTE ")) {
-    corteAntecipadoGraus = constrain(extrairFloat(cmd, 5), 0.0f, 30.0f);
-    sprintf(buf, "CORTE -> %.1f graus", corteAntecipadoGraus); logMsg(buf);
-  } else if (cmd == "CORTE") {
-    sprintf(buf, "CORTE: %.1f graus", corteAntecipadoGraus); logMsg(buf);
-
-  // --- MARGEM ---
-  } else if (cmd.startsWith("MARGEM ")) {
-    margemParadaGraus = constrain(extrairFloat(cmd, 6), 0.1f, 10.0f);
-    sprintf(buf, "MARGEM -> %.1f graus", margemParadaGraus); logMsg(buf);
-  } else if (cmd == "MARGEM") {
-    sprintf(buf, "MARGEM: %.1f graus", margemParadaGraus); logMsg(buf);
-
-  // --- GANHO ---
-  } else if (cmd.startsWith("GANHO ")) {
-    correcaoGanho = constrain(extrairFloat(cmd, 5), 1.0f, 50.0f);
-    sprintf(buf, "GANHO -> %.1f", correcaoGanho); logMsg(buf);
-  } else if (cmd == "GANHO") {
-    sprintf(buf, "GANHO: %.1f", correcaoGanho); logMsg(buf);
-
-  // --- PMIN ---
-  } else if (cmd.startsWith("PMIN ")) {
-    correcaoPwmMin = constrain(extrairInt(cmd, 4), 30, 255);
-    sprintf(buf, "PMIN -> %d", correcaoPwmMin); logMsg(buf);
-  } else if (cmd == "PMIN") {
-    sprintf(buf, "PMIN: %d", correcaoPwmMin); logMsg(buf);
-
-  // --- PMAX ---
-  } else if (cmd.startsWith("PMAX ")) {
-    correcaoPwmMax = constrain(extrairInt(cmd, 4), 50, 255);
-    sprintf(buf, "PMAX -> %d", correcaoPwmMax); logMsg(buf);
-  } else if (cmd == "PMAX") {
-    sprintf(buf, "PMAX: %d", correcaoPwmMax); logMsg(buf);
-
-  // --- ASSENT ---
-  } else if (cmd.startsWith("ASSENT ")) {
-    assentamentoMs = constrain((unsigned long)extrairInt(cmd, 6), 50UL, 2000UL);
-    sprintf(buf, "ASSENT -> %lu ms", assentamentoMs); logMsg(buf);
-  } else if (cmd == "ASSENT") {
-    sprintf(buf, "ASSENT: %lu ms", assentamentoMs); logMsg(buf);
-
-  // --- PULSO ---
-  } else if (cmd.startsWith("PULSO ")) {
-    pulsoCorrecaoMs = constrain((unsigned long)extrairInt(cmd, 5), 10UL, 500UL);
-    sprintf(buf, "PULSO -> %lu ms", pulsoCorrecaoMs); logMsg(buf);
-  } else if (cmd == "PULSO") {
-    sprintf(buf, "PULSO: %lu ms", pulsoCorrecaoMs); logMsg(buf);
-
   } else if (cmd == "BUS_ON") {
     bussolaStreaming = true;
     logMsg("Streaming da bussola LIGADO.");

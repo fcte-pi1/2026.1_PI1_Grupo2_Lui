@@ -41,9 +41,8 @@
 #define CH_MOT2_IN2 3
 
 // PWM do giro em DUTY DIRETO (0-255). Ajustavel em runtime pelo comando PWM.
-// 200 e um bom compromisso entre velocidade e controle; 255 causa overshoot
-// excessivo porque a inercia do robo nao freia a tempo.
-#define VEL_GIRO_PWM_PADRAO 200 // duty PWM do giro no cruzeiro (0-255)
+// Reduzido para 150 porque o log mostrou inercia absurda no PWM 200.
+#define VEL_GIRO_PWM_PADRAO 150 // duty PWM do giro no cruzeiro (0-255)
 
 // --- Parametros da bussola ---
 // Abaixo deste rate (em graus/s), consideramos o robo parado e NAO
@@ -222,7 +221,9 @@ String direcaoCardeal(float rumo) {
 
 // --- Atualiza o rumo integrando o gyro (com NMNI) ---
 void atualizarBussola() {
-  float giroZ_dps = lerGiroZ_dps() - offsetGiroZ_dps;
+  // INVERTIDO (-): O log provou que ao virar pra direita o rumo AUMENTAVA,
+  // abortando a Fase 1 logo no inicio (falta > 180). O rumo DEVE diminuir.
+  float giroZ_dps = -(lerGiroZ_dps() - offsetGiroZ_dps);
 
   unsigned long agora_us = micros();
   if (ultimaAtualizacao_us == 0) {

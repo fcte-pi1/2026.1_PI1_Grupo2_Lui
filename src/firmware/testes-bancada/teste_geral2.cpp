@@ -202,8 +202,17 @@ void calibrarMPU() {
 // --- Teste Distancia Parede ---
 #define DIST_MIN_PAREDE_MM 30  // 3cm
 #define TEMPO_GIRO_CORRECAO_MS 200
+#define COOLDOWN_CORRECAO_MS 2000  // trava pra girar uma vez so
+
+unsigned long ultimaCorrecao = 0;
 
 void testeDistanciaParede() {
+  // Trava: se acabou de corrigir, ignora (evita girar varias vezes seguidas)
+  if (ultimaCorrecao != 0 && millis() - ultimaCorrecao < COOLDOWN_CORRECAO_MS) {
+    logMsg("Correcao recente, aguardando cooldown...");
+    return;
+  }
+
   // Le os dois TOFs laterais (S1 = esquerdo, S3 = direito), com os mesmos offsets
   int distEsq = tof1Ok ? sensor1.readRangeContinuousMillimeters() - 23 : -1;
   int distDir = tof3Ok ? sensor3.readRangeContinuousMillimeters() - 37 : -1;
@@ -216,11 +225,13 @@ void testeDistanciaParede() {
     // Muito perto da parede esquerda -> gira pra direita pra se afastar
     logMsg("Parede esquerda muito perto! Girando pra direita...");
     girar_direita(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
+    ultimaCorrecao = millis();
     logMsg("Corrigido!");
   } else if (distDir != -1 && distDir < DIST_MIN_PAREDE_MM) {
     // Muito perto da parede direita -> gira pra esquerda pra se afastar
     logMsg("Parede direita muito perto! Girando pra esquerda...");
     girar_esquerda(VEL_GIRO / 2, TEMPO_GIRO_CORRECAO_MS);
+    ultimaCorrecao = millis();
     logMsg("Corrigido!");
   } else {
     logMsg("Distancia OK, nenhuma correcao necessaria.");

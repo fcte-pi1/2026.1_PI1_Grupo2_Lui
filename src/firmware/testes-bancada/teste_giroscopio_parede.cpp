@@ -445,6 +445,7 @@ void setup() {
 }
 
 void loop() {
+  // --- Leitura de Comandos (Serial) ---
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
@@ -454,6 +455,8 @@ void loop() {
       comandoSerial += c;
     }
   }
+  
+  // --- Leitura de Comandos (Bluetooth) ---
   while (SerialBT.available()) {
     char c = SerialBT.read();
     if (c == '\n' || c == '\r') {
@@ -464,34 +467,4 @@ void loop() {
     }
   }
 
-  unsigned long tempoAtual = millis();
-  if (leituraSensoresContinua && tempoAtual - tempoAnteriorSensores >= 500) {
-    tempoAnteriorSensores = tempoAtual;
-    lerTOFs();
-  }
-
-  if (encAtivo && tempoAtual - lastEncTime >= 500) {
-    long curEsq = encoder_esquerdo_get();
-    long curDir = encoder_direito_get();
-    
-    // Calcula a variação (ticks por segundo)
-    long deltaT = tempoAtual - lastEncTime;
-    long varEsq = (curEsq - lastEncEsq) * 1000 / deltaT;
-    long varDir = (curDir - lastEncDir) * 1000 / deltaT;
-    
-    lastEncEsq = curEsq;
-    lastEncDir = curDir;
-    lastEncTime = tempoAtual;
-
-    char buf[120];
-    sprintf(buf, "ENC VELOCIDADE | Esq: %ld ticks/s | Dir: %ld ticks/s", varEsq, varDir);
-    logMsg(String(buf));
-  }
-
-  if (mpuAtivo) {
-    lerMPU();
-    delay(100); // delay para nao floodar tanto a tela
-  } else {
-    mpuDadosProntos = false; // descarta se nao ativo
-  }
 }
